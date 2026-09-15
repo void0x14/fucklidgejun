@@ -208,11 +208,50 @@ function functionDeclarations(root: JsonObject): JsonObject[] {
   });
 }
 
+/**
+ * Clean up contents when Antigravity rejects turn ordering:
+ * Ensures that every functionCall comes immediately after a user or functionResponse turn.
+ */
+function sanitizeGeminiTurnOrder(contents: unknown[]): boolean {
+  if (!Array.isArray(contents)) return false;
+  let changed = false;
+  // If history starts with a model turn that contains functionCall, prepend an empty user turn.
+  if (contents.length > 0 && isObject(contents[0]) && contents[0].role === "model") {
+    const parts = Array.isArray(contents[0].parts) ? contents[0].parts : [];
+    if (parts.some(p => isObject(p) && p.functionCall)) {
+      contents.unshift({ role: "user", parts: [{ text: " " }] });
+      changed = true;
+    }
+  }
+  // Strip standalone reasoning / text parts that precede functionCall inside a model turn
+  // or ensure previous turn was user/functionResponse.
+  for (let i = 0; i < contents.length; i++) {
+    const turn = contents[i];
+    if (!isObject(turn) || turn.role !== "model" || !Array.isArray(turn.parts)) continue;
+    const hasFuncCall = turn.parts.some(p => isObject(p) && p.functionCall);
+    if (hasFuncCall && i > 0) {
+      const prev = contents[i - 1];
+      if (isObject(prev)) {
+        const prevParts = Array.isArray(prev.parts) ? prev.parts : [];
+        const prevIsUser = prev.role === "user";
+        const prevHasFuncResp = prevParts.some(p => isObject(p) && p.functionResponse);
+        if (!prevIsUser && !prevHasFuncResp) {
+          contents.splice(i, 0, { role: "user", parts: [{ text: " " }] });
+          changed = true;
+          i++;
+        }
+      }
+    }
+  }
+  return changed;
+}
+
 /** Build a changed request for one known-safe replay of an INVALID_ARGUMENT response. */
 export function repairGoogleInvalidRequestBody(body: string, errorPayload: string): string | undefined {
   const schemaError = /(?:input[_ ]schema|json schema|function[_ ]declarations?|x-mcp-header)/i.test(errorPayload);
   const thinkingError = /thinking[_ ]?(?:config|level)/i.test(errorPayload);
-  if (!schemaError && !thinkingError) return undefined;
+  const turnOrderError = /function call turn comes immediately/i.test(errorPayload);
+  if (!schemaError && !thinkingError && !turnOrderError) return undefined;
   let parsed: unknown;
   try {
     parsed = JSON.parse(body) as unknown;
@@ -222,6 +261,10 @@ export function repairGoogleInvalidRequestBody(body: string, errorPayload: strin
   if (!isObject(parsed)) return undefined;
   const root = isObject(parsed.request) ? parsed.request : parsed;
   let changed = false;
+
+  if (turnOrderError && Array.isArray(root.contents)) {
+    if (sanitizeGeminiTurnOrder(root.contents)) changed = true;
+  }
 
   if (thinkingError && isObject(root.generationConfig) && "thinkingConfig" in root.generationConfig) {
     delete root.generationConfig.thinkingConfig;
