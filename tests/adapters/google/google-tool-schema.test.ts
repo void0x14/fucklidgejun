@@ -245,7 +245,7 @@ describe("sanitizeGeminiToolParameters", () => {
       },
     });
     const value = (out.properties as Record<string, Record<string, unknown>>).value;
-    expect(value).toEqual({ description: "A string or number." });
+    expect(value).toEqual({ description: "A string or number.", type: "string" });
   });
 
   test("enforces an object root without composition for Claude tool input schemas", () => {
@@ -319,7 +319,7 @@ describe("sanitizeGeminiToolParameters", () => {
         },
       },
     });
-    expect((out.properties as Record<string, unknown>).impossible).toEqual({});
+    expect((out.properties as Record<string, unknown>).impossible).toEqual({ type: "string" });
   });
 
   test("preserves property names that overlap JavaScript prototype keys", () => {
@@ -387,7 +387,7 @@ describe("sanitizeGeminiToolParameters", () => {
     });
     const tree = (out.properties as Record<string, Record<string, unknown>>).tree;
     expect(tree.type).toBe("object");
-    expect(tree.properties).toEqual({ left: {}, right: {} });
+    expect(tree.properties).toEqual({ left: { type: "string" }, right: { type: "string" } });
   });
 
   test("bounds acyclic shared-definition fan-out by node budget", () => {
@@ -449,7 +449,7 @@ describe("sanitizeGeminiToolParameters", () => {
     });
     const choice = (out.properties as Record<string, Record<string, unknown>>).choice;
     expect(readPastBudget).toBe(false);
-    expect(choice).toEqual({ description: "kept" });
+    expect(choice).toEqual({ description: "kept", type: "string" });
   });
 
   test("does not read items after earlier traversal exhausts the budget", () => {
@@ -482,5 +482,52 @@ describe("sanitizeGeminiToolParameters", () => {
   test("falls back to an object schema for non-object input", () => {
     expect(sanitizeGeminiToolParameters(undefined)).toEqual({ type: "object", properties: {} });
     expect(sanitizeGeminiToolParameters("nope")).toEqual({ type: "object", properties: {} });
+  });
+
+  test("drops stray items on non-array nodes (Antigravity validates them)", () => {
+    const out = sanitizeGeminiToolParameters({
+      type: "object",
+      properties: {
+        where: { type: "object", properties: { x: { type: "string" } }, items: { type: "array" } },
+      },
+    });
+    const where = (out.properties as Record<string, Record<string, unknown>>).where;
+    expect(where.type).toBe("object");
+    expect(where.items).toBeUndefined();
+  });
+
+  test("every nested node carries a type (query.where.items.items regression)", () => {
+    const out = sanitizeGeminiToolParameters({
+      type: "object",
+      properties: {
+        query: {
+          type: "object",
+          properties: {
+            where: {
+              type: "array",
+              items: {
+                type: "array",
+                items: { description: "widened-or-annotation-only leaf" },
+              },
+            },
+          },
+        },
+      },
+    });
+    const assertTyped = (node: unknown): void => {
+      if (!node || typeof node !== "object" || Array.isArray(node)) return;
+      const schema = node as Record<string, unknown>;
+      expect(typeof schema.type).toBe("string");
+      if (schema.properties && typeof schema.properties === "object") {
+        for (const child of Object.values(schema.properties)) assertTyped(child);
+      }
+      if (schema.items !== undefined) assertTyped(schema.items);
+    };
+    assertTyped(out);
+    const query = (out.properties as Record<string, Record<string, unknown>>).query;
+    const where = (query.properties as Record<string, Record<string, unknown>>).where;
+    const items = where.items as Record<string, unknown>;
+    expect(items.type).toBe("array");
+    expect((items.items as Record<string, unknown>).type).toBe("string");
   });
 });

@@ -298,3 +298,28 @@ describe("image rejection classifier bounds", () => {
     expect(comboFailureCooldownScope(400, message, { code: "invalid_request_error" })).toBe("none");
   });
 });
+
+describe("blind quota cooldowns are short", () => {
+  test("a no-signal 429 cools briefly instead of a full minute", () => {
+    const now = 10_000;
+    coolComboTarget("free", first, {
+      now,
+      status: 429,
+      message: "Antigravity rate limit exceeded: Resource has been exhausted (e.g. check quota).",
+    });
+    expect(isComboTargetInCooldown("free", first, now + 14_000)).toBe(true);
+    expect(isComboTargetInCooldown("free", first, now + 16_000)).toBe(false);
+  });
+
+  test("an explicit Retry-After stays authoritative", () => {
+    const now = 10_000;
+    coolComboTarget("free", first, {
+      now,
+      status: 429,
+      retryAfter: "120",
+      message: "Antigravity rate limit exceeded: Resource has been exhausted (e.g. check quota).",
+    });
+    expect(isComboTargetInCooldown("free", first, now + 119_000)).toBe(true);
+    expect(isComboTargetInCooldown("free", first, now + 121_000)).toBe(false);
+  });
+});

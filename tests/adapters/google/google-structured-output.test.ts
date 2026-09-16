@@ -17,7 +17,7 @@ import type { OcxParsedRequest, OcxProviderConfig } from "../../../src/types";
 
 const aiStudio = { adapter: "google", baseUrl: "https://generativelanguage.googleapis.com", apiKey: "key" } as unknown as OcxProviderConfig;
 const vertex = { adapter: "google", googleMode: "vertex", baseUrl: "https://aiplatform.googleapis.com", apiKey: "key" } as unknown as OcxProviderConfig;
-const cca = { adapter: "google", googleMode: "cloud-code-assist", baseUrl: "https://cloudcode-pa.googleapis.com", apiKey: "token" } as unknown as OcxProviderConfig;
+const cca = { adapter: "google", googleMode: "cloud-code-assist", baseUrl: "https://cloudcode-pa.googleapis.com", apiKey: "token", project: "test-project" } as unknown as OcxProviderConfig;
 
 const SCHEMA = {
   type: "object",
@@ -86,9 +86,21 @@ describe("F3 Google structured output reaches the generateContent wire", () => {
 });
 
 describe("F3 unsupported modes refuse explicitly instead of dropping the schema", () => {
-  test("cloud-code-assist reports that opencodex does not implement it", async () => {
-    const promise = createGoogleAdapter(cca).buildRequest(parsed({ type: "json_schema", schema: SCHEMA }));
-    await expect(promise).rejects.toThrow(/not implemented by opencodex/);
+  test("cloud-code-assist downgrades the contract to a prose JSON instruction", async () => {
+    const { body } = await createGoogleAdapter(cca).buildRequest(parsed({ type: "json_schema", schema: SCHEMA }));
+    const envelope = JSON.parse(typeof body === "string" ? body : JSON.stringify(body)) as {
+      request?: {
+        generationConfig?: Record<string, unknown>;
+        systemInstruction?: { parts?: Array<{ text?: unknown }> };
+      };
+    };
+    const request = envelope.request ?? {};
+    expect(request.generationConfig?.responseMimeType).toBeUndefined();
+    expect(request.generationConfig?.responseJsonSchema).toBeUndefined();
+    const text = request.systemInstruction?.parts?.[0]?.text;
+    expect(typeof text).toBe("string");
+    expect(text as string).toContain("respond with a single JSON value only");
+    expect(text as string).toContain(JSON.stringify(SCHEMA));
   });
 
   test("an image-capable model refuses rather than silently losing the schema", async () => {

@@ -13,7 +13,12 @@ interface TargetCooldown {
   cooldownUntil: number;
 }
 
-const DEFAULT_COOLDOWN_MS = 60_000;
+/**
+ * Blind-failure cooldown: no Retry-After, no reset timestamp, no pinned value.
+ * Kept short on purpose — a blind guess must not blackhole (single-target) combos
+ * for a full minute with zero re-probing; authoritative upstream signals below win.
+ */
+const DEFAULT_COOLDOWN_MS = 15_000;
 const MAX_COOLDOWN_MS = 10 * 60_000;
 /** Short cooldown for request-rate 429s (for example provider code 1302) that omit Retry-After. */
 export const COMBO_REQUEST_RATE_COOLDOWN_MS = 5_000;

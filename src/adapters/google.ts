@@ -529,6 +529,39 @@ function isImageCapableModel(modelId: string): boolean {
 }
 
 /**
+ * Cloud Code Assist has no verified structured-output wire fields, so a requested
+ * text.format cannot ride generationConfig there. Downgrade it to a prose-level JSON
+ * contract instead of failing the turn: the schema travels as a system instruction
+ * and the model returns the JSON as text (the same response shape responseJsonSchema
+ * callers already receive). This keeps prompt-based JSON consumers such as Claude
+ * Code's /goal verdict evaluation working on CCA-routed models instead of 400ing
+ * every such turn.
+ */
+const CCA_JSON_DOWNGRADE_SCHEMA_CHARS = 4000;
+
+function ccaJsonDowngradeInstruction(format: { type: "json_schema" | "json_object"; schema?: Record<string, unknown> }): string {
+  const lines = [
+    "Output contract for this turn: respond with a single JSON value only.",
+    "No prose, no markdown fences, no commentary outside the JSON.",
+  ];
+  if (format.type === "json_schema" && format.schema !== undefined) {
+    let schemaText = "";
+    try {
+      schemaText = JSON.stringify(format.schema);
+    } catch {
+      schemaText = "";
+    }
+    if (schemaText.length > CCA_JSON_DOWNGRADE_SCHEMA_CHARS) {
+      schemaText = `${schemaText.slice(0, CCA_JSON_DOWNGRADE_SCHEMA_CHARS)}\u2026(truncated)`;
+    }
+    if (schemaText) lines.push(`It MUST validate against this JSON Schema: ${schemaText}`);
+  } else {
+    lines.push("It MUST be valid JSON.");
+  }
+  return lines.join("\n");
+}
+
+/**
  * Model-visible markdown link for a materialized artifact. Uses the authenticated
  * opaque HTTP route so remote/container clients can fetch the image without host
  * filesystem paths leaking into the transcript.
@@ -804,21 +837,22 @@ export function createGoogleAdapter(provider: OcxProviderConfig): ProviderAdapte
 
     async buildRequest(parsed: OcxParsedRequest) {
       // Structured-output admission runs FIRST, before messagesToGeminiFormat writes
-      // lastInjectedCallIds/lastReasoningReplayScope: a refused request must not leave
-      // adapter-scoped replay state pointing at call ids that never went out. These
-      // refusals are local and precede any fetch, and carry no request content, schema
-      // body, URL or credential.
+      // lastInjectedCallIds/lastReasoningReplayScope. The Cloud Code Assist envelope
+      // has no verified structured-output wire fields, so its text.format contract is
+      // downgraded to a prose JSON instruction (ccaJsonDowngrade) instead of refused —
+      // a refusal here wedged every prompt-based JSON consumer (Claude Code /goal
+      // evaluation) on CCA-routed models. Remaining refusals below are local, precede
+      // any fetch, and carry no request content, schema body, URL or credential.
       const requestedTextFormat = parsed.options.textFormat;
+      // CCA JSON downgrade target: set when the Cloud Code Assist envelope must
+      // carry a text.format contract as prose (no verified wire fields exist).
+      let ccaJsonDowngrade: string | undefined;
       if (requestedTextFormat) {
         if (provider.googleMode === "cloud-code-assist") {
-          // Not implemented or verified by opencodex for the Cloud Code Assist envelope,
-          // including Claude models served through it. This is not a claim that the
-          // upstream cannot do it — silence would return unconstrained prose as success,
-          // which is the failure this fix exists to remove.
-          throw new Error(
-            "google cloud-code-assist structured output is not implemented by opencodex — "
-            + "remove response_format or route this model through AI Studio or Vertex",
-          );
+          // Downgrade: carry the JSON contract as a system instruction (see
+          // ccaJsonDowngradeInstruction). generationConfig stays unconstrained and
+          // the model returns the JSON as text, which JSON consumers parse.
+          ccaJsonDowngrade = ccaJsonDowngradeInstruction(requestedTextFormat);
         }
         if (isImageCapableModel(parsed.modelId)) {
           // An image-output model is configured with responseModalities; constraining the
@@ -871,6 +905,17 @@ export function createGoogleAdapter(provider: OcxProviderConfig): ProviderAdapte
       if (clampedMaxOutputTokens !== undefined) generationConfig.maxOutputTokens = clampedMaxOutputTokens;
       if (parsed.options.temperature !== undefined) generationConfig.temperature = parsed.options.temperature;
       if (parsed.options.topP !== undefined) generationConfig.topP = parsed.options.topP;
+      if (ccaJsonDowngrade !== undefined) {
+        const base = body.systemInstruction as { parts?: Array<{ text?: unknown }> } | undefined;
+        const baseText = base?.parts?.[0]?.text;
+        body.systemInstruction = {
+          parts: [{
+            text: typeof baseText === "string" && baseText.length > 0
+              ? `${baseText}\n\n${ccaJsonDowngrade}`
+              : ccaJsonDowngrade,
+          }],
+        };
+      }
       if (parsed.options.stopSequences) generationConfig.stopSequences = parsed.options.stopSequences;
       // Effort → thinkingLevel follows the configured ladder: any model advertising reasoning
       // efforts (registry preset or user config) sends the mapped level, so a picker-selected
@@ -900,7 +945,7 @@ export function createGoogleAdapter(provider: OcxProviderConfig): ProviderAdapte
       // The tool-parameter sanitizer is deliberately NOT applied: it narrows a schema
       // to the function-declaration subset and would corrupt a valid output schema.
       const textFormat = parsed.options.textFormat;
-      if (textFormat) {
+      if (textFormat && ccaJsonDowngrade === undefined) {
         generationConfig.responseMimeType = "application/json";
         if (textFormat.type === "json_schema" && textFormat.schema) {
           generationConfig.responseJsonSchema = textFormat.schema;

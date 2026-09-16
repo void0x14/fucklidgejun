@@ -150,9 +150,31 @@ function sanitizeProperties(
     // Property names form a name bag and must never be interpreted as schema keywords.
     const schema = sanitizeSchema(value[name], defs, depth + 1, refDepth, false, state);
     if (schema === BUDGET_EXHAUSTED) break;
-    properties[name] = schema;
+    properties[name] = ensureTypedSchemaNode(schema);
   }
   return properties;
+}
+
+/**
+ * Antigravity validates every nested Schema node: a node without an explicit `type`
+ * is rejected even under a valid parent (e.g. `...properties[where].items.items:
+ * missing field`). Widened unions, unresolvable refs and annotation-only nodes all
+ * sanitize to typeless `{}` — repair by structure (properties->object, items->array)
+ * and coerce anything else to a string leaf, preserving annotations. Declarations
+ * only; output schemas never pass through here.
+ */
+function ensureTypedSchemaNode(schema: Schema): Schema {
+  if (typeof schema.type === "string") return schema;
+  if (isRecord(schema.properties)) return { ...schema, type: "object" };
+  if (isRecord(schema.items)) {
+    const items = schema.items as Schema;
+    return {
+      ...schema,
+      type: "array",
+      items: typeof items.type === "string" ? items : { ...items, type: "string" },
+    };
+  }
+  return { ...schema, type: "string" };
 }
 
 function sanitizeSchema(
@@ -207,9 +229,12 @@ function sanitizeSchema(
 
   if (state.remainingNodes <= 0) return out;
 
-  if (isRecord(node.items)) {
+  // `items` is only meaningful on array nodes. A stray `items` key on an object (or
+  // otherwise typed) node is still validated by Antigravity and rejected when it is
+  // not itself a complete Schema — drop it; the node's own type stands.
+  if (isRecord(node.items) && (out.type === undefined || out.type === "array")) {
     const items = sanitizeSchema(node.items, defs, depth + 1, refDepth, false, state);
-    if (items !== BUDGET_EXHAUSTED) out.items = items;
+    if (items !== BUDGET_EXHAUSTED) out.items = ensureTypedSchemaNode(items);
   }
 
   if (state.remainingNodes <= 0) {
