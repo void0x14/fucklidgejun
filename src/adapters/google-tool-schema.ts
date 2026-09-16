@@ -206,6 +206,10 @@ function sanitizeSchema(
   if (isRecord(node.items)) {
     const items = sanitizeSchema(node.items, defs, depth + 1, refDepth, false, state);
     if (items !== BUDGET_EXHAUSTED) out.items = items;
+  } else if (out.type === "array" && out.items === undefined) {
+    // Google Antigravity schema contract: every Schema with type === "array" MUST have an "items" field.
+    // If missing or not an object, Google API 400s with: "GenerateContentRequest...properties[...].items: missing field."
+    out.items = { type: "string" };
   }
 
   if (state.remainingNodes <= 0) return out;
