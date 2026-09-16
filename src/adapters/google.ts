@@ -441,7 +441,21 @@ function messagesToGeminiFormat(
     contents.push({ role: "user", parts: [{ text: "(continue)" }] });
   }
 
-  return { systemInstruction, contents, replayedCallIds };
+  // Consecutive turns with the identical role (user -> user or model -> model) violate Gemini's strict turn alternation.
+  // Merge consecutive turns to prevent 400 rejection on long or interrupted sessions.
+  const normalizedContents: unknown[] = [];
+  for (const turn of contents as Array<{ role: string; parts: unknown[] }>) {
+    if (normalizedContents.length > 0) {
+      const last = normalizedContents[normalizedContents.length - 1] as { role: string; parts: unknown[] };
+      if (last.role === turn.role) {
+        last.parts.push(...turn.parts);
+        continue;
+      }
+    }
+    normalizedContents.push(turn);
+  }
+
+  return { systemInstruction, contents: normalizedContents, replayedCallIds };
 }
 
 function toolsToGeminiFormat(parsed: OcxParsedRequest): unknown[] | undefined {
