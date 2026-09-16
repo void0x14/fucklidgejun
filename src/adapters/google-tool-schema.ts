@@ -5,6 +5,8 @@ type Schema = Record<string, unknown>;
 // only the eight scalar/container keywords below are ever emitted. Building from an allowlist
 // prevents new MCP/JSON-Schema annotations from turning into provider-wide 400 responses.
 const ALLOWED_TYPES = new Set(["string", "integer", "number", "boolean", "array", "object"]);
+// Google OpenAPI / Gemini Protobuf Schema supported format values. Foreign/unsupported formats 400.
+const ALLOWED_FORMATS = new Set(["int32", "int64", "float", "double", "byte", "date", "date-time"]);
 const MAX_SCHEMA_DEPTH = 24; // Google's documented nesting limit is 32; leave headroom for CCA.
 const MAX_DEREF_DEPTH = 16;
 const MAX_SCHEMA_NODES = 1_024;
@@ -186,7 +188,9 @@ function sanitizeSchema(
 
   if (typeof node.nullable === "boolean") out.nullable = node.nullable;
   if (typeof node.description === "string") out.description = node.description;
-  if (typeof node.format === "string") out.format = node.format;
+  if (typeof node.format === "string" && ALLOWED_FORMATS.has(node.format.toLowerCase())) {
+    out.format = node.format.toLowerCase();
+  }
 
   const enumValues = sanitizeEnum(node.enum ?? (typeof node.const === "string" ? [node.const] : undefined));
   if (enumValues) out.enum = enumValues;
@@ -222,6 +226,9 @@ function sanitizeSchema(
   // Every Schema node with type === "array" MUST have a valid "items" field with an explicit type.
   // If items is missing, empty ({}), or lacks a string type, Google rejects with:
   // "GenerateContentRequest...properties[...].items: missing field."
+  if (out.type === "object") {
+    if (!isRecord(out.properties)) out.properties = {};
+  }
   if (out.type === "array") {
     if (!isRecord(out.items) || typeof (out.items as Schema).type !== "string") {
       out.items = { type: "string" };
