@@ -206,15 +206,26 @@ function sanitizeSchema(
   if (isRecord(node.items)) {
     const items = sanitizeSchema(node.items, defs, depth + 1, refDepth, false, state);
     if (items !== BUDGET_EXHAUSTED) out.items = items;
-  } else if (out.type === "array" && out.items === undefined) {
-    // Google Antigravity schema contract: every Schema with type === "array" MUST have an "items" field.
-    // If missing or not an object, Google API 400s with: "GenerateContentRequest...properties[...].items: missing field."
-    out.items = { type: "string" };
   }
 
-  if (state.remainingNodes <= 0) return out;
+  if (state.remainingNodes <= 0) {
+    if (out.type === "array" && (!isRecord(out.items) || typeof (out.items as Schema).type !== "string")) {
+      out.items = { type: "string" };
+    }
+    return out;
+  }
   if (node.anyOf !== undefined) {
     Object.assign(out, normalizeAnyOf(node.anyOf, defs, depth, refDepth, state));
+  }
+
+  // Google Antigravity Protobuf schema contract:
+  // Every Schema node with type === "array" MUST have a valid "items" field with an explicit type.
+  // If items is missing, empty ({}), or lacks a string type, Google rejects with:
+  // "GenerateContentRequest...properties[...].items: missing field."
+  if (out.type === "array") {
+    if (!isRecord(out.items) || typeof (out.items as Schema).type !== "string") {
+      out.items = { type: "string" };
+    }
   }
   return out;
 }

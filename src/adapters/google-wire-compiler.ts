@@ -203,6 +203,55 @@ export function compileGoogleWireBody(input: unknown): {
 function functionDeclarations(root: JsonObject): JsonObject[] {
   if (!Array.isArray(root.tools)) return [];
   return root.tools.flatMap(rawTool => {
+    if (!isObject(rawTool)) return [];
+    const decls = rawTool.functionDeclarations ?? rawTool.function_declarations;
+    if (!Array.isArray(decls)) return [];
+    return decls.filter(isObject);
+  });
+}
+
+/**
+ * Clean up contents when Antigravity rejects turn ordering:
+ * Ensures that every functionCall comes immediately after a user or functionResponse turn.
+ */
+function sanitizeGeminiTurnOrder(contents: unknown[]): boolean {
+  if (!Array.isArray(contents)) return false;
+  let changed = false;
+  const isFuncCall = (p: unknown) => isObject(p) && (Boolean(p.functionCall) || Boolean(p.function_call));
+  const isFuncResp = (p: unknown) => isObject(p) && (Boolean(p.functionResponse) || Boolean(p.function_response));
+
+  // If history starts with a model turn, prepend an empty user turn.
+  if (contents.length > 0 && isObject(contents[0]) && contents[0].role === "model") {
+    contents.unshift({ role: "user", parts: [{ text: " " }] });
+    changed = true;
+  }
+
+  for (let i = 0; i < contents.length; i++) {
+    const turn = contents[i];
+    if (!isObject(turn) || turn.role !== "model" || !Array.isArray(turn.parts)) continue;
+    const hasFuncCall = turn.parts.some(isFuncCall);
+    if (hasFuncCall && i > 0) {
+      const prev = contents[i - 1];
+      if (isObject(prev)) {
+        const prevParts = Array.isArray(prev.parts) ? prev.parts : [];
+        const prevIsUser = prev.role === "user";
+        const prevHasFuncResp = prevParts.some(isFuncResp);
+        if (!prevIsUser && !prevHasFuncResp) {
+          contents.splice(i, 0, { role: "user", parts: [{ text: " " }] });
+          changed = true;
+          i++;
+        }
+      }
+    }
+  }
+  return changed;
+}
+
+/** Build a changed request for one known-safe replay of an INVALID_ARGUMENT response. */
+export function repairGoogleInvalidRequestBody(body: string, errorPayload: string): string | undefined {
+  const schemaError = /(?:input[_ ]schema|json schema|function[_ ]declarations?|x-mcp-header|(?:tools|parameters|function_declarations?|properties|items).*(?:missing field)|(?:missing field).*(?:tools|parameters|properties|items))/i.test(errorPayload);
+  if (!Array.isArray(root.tools)) return [];
+  return root.tools.flatMap(rawTool => {
     if (!isObject(rawTool) || !Array.isArray(rawTool.functionDeclarations)) return [];
     return rawTool.functionDeclarations.filter(isObject);
   });
