@@ -3,7 +3,9 @@ import { sanitizeGeminiToolParameters } from "./google-tool-schema";
 
 type JsonObject = Record<string, unknown>;
 
-const GOOGLE_TOOL_NAME = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
+// Google Gemini API requires function names to match ^[A-Za-z_][A-Za-z0-9_]{0,63}$.
+// Dashes (-) are rejected on Antigravity / Vertex AI endpoints.
+const GOOGLE_TOOL_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 const GOOGLE_THINKING_LEVELS = new Set(["minimal", "low", "medium", "high"]);
 
 function isObject(value: unknown): value is JsonObject {
@@ -27,7 +29,7 @@ function toolNameCodec(names: readonly string[]): {
       continue;
     }
 
-    let cleaned = name.replace(/[^A-Za-z0-9_-]/g, "_");
+    let cleaned = name.replace(/[^A-Za-z0-9_]/g, "_");
     if (!/^[A-Za-z_]/.test(cleaned)) cleaned = `_${cleaned}`;
     const prefix = (cleaned || "tool").slice(0, 55);
     for (let salt = 0; ; salt++) {
