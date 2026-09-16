@@ -248,7 +248,7 @@ function sanitizeGeminiTurnOrder(contents: unknown[]): boolean {
 
 /** Build a changed request for one known-safe replay of an INVALID_ARGUMENT response. */
 export function repairGoogleInvalidRequestBody(body: string, errorPayload: string): string | undefined {
-  const schemaError = /(?:input[_ ]schema|json schema|function[_ ]declarations?|x-mcp-header)/i.test(errorPayload);
+  const schemaError = /(?:input[_ ]schema|json schema|function[_ ]declarations?|x-mcp-header|missing field)/i.test(errorPayload);
   const thinkingError = /thinking[_ ]?(?:config|level)/i.test(errorPayload);
   const turnOrderError = /function call turn comes immediately/i.test(errorPayload);
   if (!schemaError && !thinkingError && !turnOrderError) return undefined;
