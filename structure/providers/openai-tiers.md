@@ -374,6 +374,53 @@ Native Spark membership and its model-specific request/tool exceptions are remov
   exact rejection and fresh grant before each later send; otherwise ordinary eligible-account
   failover applies.
 
+- The account-gated set is `gpt-daybreak-blue-latest` and `gpt-6-astra-minor`. Neither has a
+  shipped catalog row, so roster absence is the only evidence available for either. Astra Minor
+  borrows `gpt-6-astra` capability metadata for catalog rows only; it has no wire normalization, so
+  a request goes upstream as `gpt-6-astra-minor`.
+
+- The flagship roster that lists unconditionally is `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`,
+  `gpt-6-astra`, `gpt-6-sol` and `gpt-6-luna` (Sol and Luna added 2026-09-23 from a live roster
+  probe; https://openai.com/index/introducing-gpt-6-sol-and-luna/). None of them is gated, and all
+  six are native-main drain sentinels. The confirmed-denial ordering below is still scoped to the
+  first four (`ENTITLEMENT_PREFERRED_NATIVE_OPENAI_MODELS`); Sol and Luna do not feed it yet.
+
+- The always-visible flagships (`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-6-astra`)
+  use the same rosters with the opposite polarity, and are never gated on them. Only a CONFIRMED
+  DENIAL counts: `cachedDeniedCodexAccountIdsForModel` reads rosters discovery already gathered,
+  synchronously and with no upstream fetch on the request path, and `getEligiblePoolAccounts` drops
+  those accounts ahead of the priority tier. If that would leave no candidate the full list is
+  restored, so evidence can never remove a model the way a fail-closed gate would (#3022). Unknown,
+  unconfirmed, expired and too-old-client rosters stay unknown and change nothing; a grant under any
+  client version clears a denial recorded under another. Nothing refuses before dispatch, and the
+  bounded alternate-account retry on an exact unsupported-model 400 remains the safety net (#4768).
+  A cached roster lives five minutes and nothing on the flagship request path refetches it, so the
+  roster alone left that evidence absent for most requests and both ordering rules became the
+  identity function — the pool then selected on quota, which is #4906. The refusal itself is
+  therefore the second source: an exact pre-stream unsupported-model 400 from a Pool account is
+  recorded per (account, model) in `src/codex/observed-model-denials.ts` and unioned into
+  `cachedDeniedCodexAccountIdsForModel`. It is confirmed, authenticated evidence, never a plan
+  name and never remaining quota. It is bounded and retained for six hours, it is outranked by any
+  confirmed roster grant for the same pair, it is cleared when that account successfully serves
+  that model, and it is discarded when the account's credential identity changes. Recording is
+  scoped to the always-visible flagships, so a 400 anywhere else cannot steer routing. Every
+  consumer treats it exactly like a roster denial, so the restore-on-empty and pin-exempt rules
+  above continue to hold and no request is refused before dispatch.
+  Detection reads the model upstream actually named rather than rebuilding the sentence from
+  `route.modelId`, because `applyCodexAccountGatedWireNormalization` rewrites Daybreak to
+  `gpt-5.6-sol` before dispatch; comparing against the route model alone never matched for the
+  one wire-normalized account-gated model, which disabled both its alternate-account retry and its
+  same-account ladder.
+  `getEligiblePoolAccounts` is not the only door, so `preferModelEntitledAccount` applies the same
+  evidence to an already-active shared cursor: the replacement is drawn from the eligible list, the
+  active account is returned unchanged when no entitled alternative exists, and the correction is
+  request-scoped and never persisted, so the operator's cursor is unchanged for the next request.
+  An operator's manual pin is exempt: evidence orders the pool's own discretion and never overrules
+  an explicit selection, and because `selectPriorityTier` reads the pin to lower the tier ceiling,
+  filtering it out beforehand would re-enable the tiers the operator excluded rather than merely
+  demote the account. Eligibility itself is untouched — `isCodexAccountSelectable` remains the sole
+  authority for pause, plan exclusion, quota cooldown and avoidance, soft avoidance, refresh cooling
+  and usability, and `codexAccountBlockReason` still reports which of those guards fired.
 - `gpt-daybreak-blue-latest` remains the catalog and entitlement identity, but the canonical
   ChatGPT wire uses `gpt-5.6-sol`, the serving id reported by successful Daybreak responses.
   Daybreak compaction uses the existing synthetic `/responses` compaction path instead of the

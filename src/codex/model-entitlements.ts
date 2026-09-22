@@ -12,7 +12,7 @@ import {
 import { ACCOUNT_GATED_NATIVE_OPENAI_MODELS } from "./catalog/native-models";
 import { loadPersistedCodexRuntime } from "./runtime";
 import { codexRuntimeStateEpoch } from "./runtime";
-import upstreamModelsSnapshot from "./data/upstream-models.json";
+import { pinnedNativeModelRows } from "./catalog/pinned-models";
 import { codexCredentialMutationEpoch } from "./credential-mutation-epoch";
 
 const CODEX_MODELS_ENDPOINT = "https://chatgpt.com/backend-api/codex/models";
@@ -132,8 +132,11 @@ function composeGatedClientVersionFloor(
     : MEASURED_GATED_CLIENT_VERSION_MINIMUM;
 }
 
+// Reads every pinned row (codex-rs snapshot plus roster-captured rows), so a gated slug whose row
+// arrives through roster-pinned-models.json still contributes its floor. None does today:
+// gpt-6-sol/luna are ungated, and gpt-6-astra-minor has no row and no measured minimum.
 export const GATED_MODEL_CLIENT_VERSION_FLOOR: string = composeGatedClientVersionFloor(
-  (upstreamModelsSnapshot as { models?: Array<Record<string, unknown>> }).models ?? [],
+  pinnedNativeModelRows(),
 );
 
 /** Test-only seam: the composition on synthetic rows, so both directions can be proven. */
