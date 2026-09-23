@@ -127,6 +127,70 @@ export function forgetApiKeyRotationCursor(providerName?: string): void {
   keyRotationCursor.delete(providerName);
 }
 
+/*
+ * Next healthy pool key after the round-robin cursor, or null when every key is cooling.
+ *
+ * The cursor is the single source of sequence truth: it advances on every distributed pick
+ * AND on every committed move (`rotateKeyAfterFailure` and the persisted branch of
+ * `selectProactiveApiKey` keep writing it), so 429 recovery, manual selection and
+ * per-request distribution all advance the same sequence instead of forking it. Seeding
+ * from the last pick -- not from the committed row -- is what makes back-to-back requests
+ * land on different keys even when the persisted row does not move between them.
+ *
+ * When the cursor is unknown (fresh boot, manual pool edit), anchor on the committed key so
+ * the first distributed request goes to its successor instead of re-sending it.
+ */
+function nextRoundRobinKey(
+  providerName: string,
+  pool: readonly ApiKeyPoolEntry[],
+  committedKey: string | undefined,
+  now: number,
+): ApiKeyPoolEntry | null {
+  const cursorId = keyRotationCursor.get(providerName);
+  const cursorIndex = cursorId ? pool.findIndex(entry => entry.id === cursorId) : -1;
+  const anchorIndex = cursorIndex >= 0
+    ? cursorIndex
+    : pool.findIndex(entry => entry.key === committedKey);
+  for (let offset = 1; offset <= pool.length; offset += 1) {
+    const candidate = pool[(anchorIndex + offset) % pool.length]!;
+    if (isKeyInCooldown(providerName, candidate.id, now)) continue;
+    keyRotationCursor.set(providerName, candidate.id);
+    return candidate;
+  }
+  return null;
+}
+
+/*
+ * Per-request round-robin pick for the `round-robin` strategy.
+ *
+ * The picked key is written back onto the CALLER's live config object -- in memory only,
+ * never to disk. That write is load-bearing, not cosmetic:
+ * - `providerApiKeySelectionIsCurrent` (the dispatch gate in
+ *   `request-transport.ts`) compares the route's key against the live config row. Without
+ *   the write every distributed pick reads as stale and is rebuilt with the committed key,
+ *   so distribution silently collapses back onto one key at send time.
+ * - No `mutatePersistedConfig`, no `apiKeySelectionRevision` bump, no
+ *   `publishAccountSelection` event: this runs on every request, so it stays off the
+ *   mutation lock. The UI keeps showing the committed key until a real rotation (429/401
+ *   recovery or manual selection) moves it.
+ * - The `_apiKeyAttempt` stamp is captured from the committed row BEFORE the swap, so a
+ *   429 on the distributed key still carries the committed selection identity into
+ *   `rotateKeyAfterFailure`, which then rotates relative to the key that actually failed.
+ *
+ * The committed row is rebuilt through the registry seam (`routedProviderConfig`) so adapter,
+ * base URL and static headers survive on the returned route.
+ */
+function buildRoundRobinTransport(
+  config: OcxConfig,
+  providerName: string,
+  provider: OcxProviderConfig,
+  picked: ApiKeyPoolEntry,
+): OcxProviderConfig {
+  const committedRoute = routedProviderConfig(providerName, provider);
+  provider.apiKey = picked.key;
+  return { ...committedRoute, apiKey: picked.key };
+}
+
 /** The pool entry shape is inline on OcxProviderConfig; name it once rather than re-spelling it. */
 type ApiKeyPoolEntry = NonNullable<OcxProviderConfig["apiKeyPool"]>[number];
 
@@ -177,24 +241,32 @@ function rankKeysByHeadroom(
 }
 
 
-/**
- * Pick a better key BEFORE the first attempt when the committed one is already cooling.
+/*
+ * Pick a key BEFORE the first attempt.
  *
- * This is intentionally narrow. It never overrides a healthy key: if the committed
- * `apiKey` is not in cooldown it returns null, so an operator's manual selection stands
- * and no config write happens. It only acts when the committed key is known-cooled (or
- * missing from the pool), which is exactly the case where the first request would
- * otherwise be spent earning a 429 the runtime could already predict.
+ * Two modes, split by strategy:
+ * - `round-robin`: EVERY request advances to the next healthy pool key, whether or not
+ *   the committed key is healthy. This is true per-request load distribution: without it
+ *   every request lands on the same committed key until a 429 forces a rotation, so a
+ *   single upstream key absorbs the full request rate (and its per-key quota) while its
+ *   siblings sit idle. The choice is in-memory only -- no config write, no revision bump --
+ *   so the UI keeps showing the operator's committed key and 429 recovery still owns
+ *   persistence. Cooldown-skipped keys are never picked.
+ * - `quota` / `fill-first`: intentionally narrow. Never overrides a healthy key: if the
+ *   committed `apiKey` is not in cooldown it returns null, so an operator's manual selection
+ *   stands and no config write happens. Only acts when the committed key is known-cooled (or
+ *   missing from the pool), which is exactly the case where the first request would
+ *   otherwise be spent earning a 429 the runtime could already predict.
  *
- * Returning null is the common path, so the persisted-selection transaction is not on
- * the per-request hot path.
+ * Returning null is the common path for the non-round-robin strategies, so the
+ * persisted-selection transaction is not on the per-request hot path.
  *
- * Like `rotateKeyAfterFailure`, the returned object is a snapshot of the PERSISTED config
- * and carries none of the registry backfills `routedProviderConfig` merges in at request
- * time. A request path must not assign it to an active route wholesale -- for a built-in
- * provider stored in its valid minimal form that would drop the adapter id, the base URL and
- * the static headers, so `resolveAdapter()` throws `Unknown adapter: undefined` and a
- * hand-built URL dereferences a missing `baseUrl`. Use
+ * Like `rotateKeyAfterFailure`, the PERSISTED branch of this function answers with a snapshot
+ * of the persisted config and carries none of the registry backfills `routedProviderConfig`
+ * merges in at request time. A request path must not assign it to an active route wholesale --
+ * for a built-in provider stored in its valid minimal form that would drop the adapter id,
+ * the base URL and the static headers, so `resolveAdapter()` throws
+ * `Unknown adapter: undefined` and a hand-built URL dereferences a missing `baseUrl`. Use
  * `selectProactiveApiKeyTransport`, the pre-dispatch twin of `rotateProviderTransportOn429`.
  */
 export function selectProactiveApiKey(
@@ -210,8 +282,20 @@ export function selectProactiveApiKey(
   const pool = provider.apiKeyPool ?? [];
 
   const activeEntry = pool.find(entry => entry.key === provider.apiKey);
+  const activeHealthy = activeEntry && !isKeyInCooldown(providerName, activeEntry.id, now);
+
+  // Round-robin is per-request load distribution, not failover: advance on every request
+  // while the committed key is healthy. A cooled committed key falls through to the shared
+  // recovery-flavoured branch below, which persists the move like any other rotation.
+  if (strategy === "round-robin" && activeHealthy) {
+    const rotated = nextRoundRobinKey(providerName, pool, provider.apiKey, now);
+    // No healthy alternative (single eligible key, or everything else cooling): stay put.
+    if (!rotated || rotated.key === provider.apiKey) return null;
+    return buildRoundRobinTransport(config, providerName, provider, rotated);
+  }
+
   // A healthy committed key wins, whether the operator chose it or a previous rotation did.
-  if (activeEntry && !isKeyInCooldown(providerName, activeEntry.id, now)) return null;
+  if (activeHealthy) return null;
 
   const eligible = pool.filter(entry => !isKeyInCooldown(providerName, entry.id, now));
   if (eligible.length === 0) return null;

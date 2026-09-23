@@ -467,11 +467,45 @@ describe("rotateKeyOn401", () => {
       expect(selectProactiveApiKey(config, "p", now)).toBeNull();
     });
 
-    test("keeps a healthy committed key instead of rotating off an operator choice", () => {
+    test("round-robin advances on every request while the committed key is healthy", () => {
       const config = makeConfig({
         apiKey: "key-alpha-000111222333",
         apiKeyPool: pool3(),
         apiKeyPoolStrategy: "round-robin",
+      });
+      forgetApiKeyRotationCursor("p");
+      // No cooldown recorded: the committed key is healthy, yet every request must move.
+      // Pure cursor order: alpha -> beta -> gamma -> alpha -> beta -> ... so no single
+      // upstream key absorbs the full request rate.
+      expect(selectProactiveApiKey(config, "p", now)?.apiKey).toBe("key-beta-444555666777");
+      expect(selectProactiveApiKey(config, "p", now)?.apiKey).toBe("key-gamma-888999000111");
+      expect(selectProactiveApiKey(config, "p", now)?.apiKey).toBe("key-alpha-000111222333");
+      expect(selectProactiveApiKey(config, "p", now)?.apiKey).toBe("key-beta-444555666777");
+      // Live-config only (so the dispatch gate accepts the pick): nothing reaches disk.
+      expect(loadConfig().providers.p!.apiKey).toBe("key-alpha-000111222333");
+    });
+
+    test("round-robin skips a cooling key without stalling the sequence", () => {
+      const config = makeConfig({
+        apiKey: "key-alpha-000111222333",
+        apiKeyPool: pool3(),
+        apiKeyPoolStrategy: "round-robin",
+      });
+      forgetApiKeyRotationCursor("p");
+      // beta 429s on its turn: it cools, gamma serves next, then alpha, then gamma again
+      // (beta still cooling) -- the sequence never stalls and never re-sends the cooled key.
+      expect(selectProactiveApiKey(config, "p", now)?.apiKey).toBe("key-beta-444555666777");
+      rotateKeyOn429(config, "p", null, now, "key-beta-444555666777");
+      expect(selectProactiveApiKey(config, "p", now)?.apiKey).toBe("key-gamma-888999000111");
+      expect(selectProactiveApiKey(config, "p", now)?.apiKey).toBe("key-alpha-000111222333");
+      expect(selectProactiveApiKey(config, "p", now)?.apiKey).toBe("key-gamma-888999000111");
+    });
+
+    test("fill-first keeps a healthy committed key instead of distributing", () => {
+      const config = makeConfig({
+        apiKey: "key-alpha-000111222333",
+        apiKeyPool: pool3(),
+        apiKeyPoolStrategy: "fill-first",
       });
       forgetApiKeyRotationCursor("p");
       // No cooldown recorded, so the committed key is healthy and must survive untouched.
@@ -562,6 +596,27 @@ describe("rotateKeyOn401", () => {
       });
       forgetApiKeyRotationCursor("p");
       expect(selectProactiveApiKey(config, "p", now)).toBeNull();
+    });
+
+    test("the Transport twin distributes round-robin picks with registry backfills intact", () => {
+      const config = makeConfig({
+        apiKey: "key-alpha-000111222333",
+        apiKeyPool: pool3(),
+        apiKeyPoolStrategy: "round-robin",
+      });
+      forgetApiKeyRotationCursor("p");
+      const sentinelFetch = (async () => new Response("")) as typeof fetch;
+      const routed = { ...routedProviderConfig("p", config.providers.p!), fetch: sentinelFetch };
+      // Healthy committed key, yet the route must still move: beta, then gamma.
+      const first = selectProactiveApiKeyTransport(config, "p", routed, undefined, now);
+      expect(first?.apiKey).toBe("key-beta-444555666777");
+      expect(first?.fetch).toBe(sentinelFetch);
+      expect(first?.adapter).toBe("openai-chat");
+      expect(first?.baseUrl).toBe("https://api.example.com/v1");
+      const second = selectProactiveApiKeyTransport(config, "p", routed, undefined, now);
+      expect(second?.apiKey).toBe("key-gamma-888999000111");
+      // Persisted row untouched: distribution stays invisible to the UI and off disk.
+      expect(loadConfig().providers.p!.apiKey).toBe("key-alpha-000111222333");
     });
 
     /** Quota rows live in a private cache keyed on the resolved secret; seed it through the seam. */
