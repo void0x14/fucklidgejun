@@ -2,6 +2,7 @@ import type { AdapterFetchContext, AdapterRequest, ProviderAdapter } from "./bas
 import { debugDroppedFrame } from "../lib/debug";
 import { createToolCallIdAllocator } from "./tool-call-id";
 import { createImageBudget, materializeInlineImage, MAX_ENCODED_BYTES_PER_IMAGE, artifactHttpUrl } from "../images/artifacts";
+import { completeStrictRequired } from "../lib/strict-schema-required";
 import type {
   AdapterEvent,
   OcxAssistantMessage,
@@ -948,7 +949,7 @@ export function createGoogleAdapter(provider: OcxProviderConfig): ProviderAdapte
       if (textFormat && ccaJsonDowngrade === undefined) {
         generationConfig.responseMimeType = "application/json";
         if (textFormat.type === "json_schema" && textFormat.schema) {
-          generationConfig.responseJsonSchema = textFormat.schema;
+          generationConfig.responseJsonSchema = completeStrictRequired(textFormat.schema);
         }
       }
       if (Object.keys(generationConfig).length > 0) body.generationConfig = generationConfig;

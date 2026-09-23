@@ -1,5 +1,6 @@
 import type { AdapterRequest, IncomingMeta, ProviderAdapter } from "./base";
 import { randomUUID } from "node:crypto";
+import { completeStrictRequired } from "../lib/strict-schema-required";
 import type {
   AdapterEvent,
   OcxAssistantMessage,
@@ -516,7 +517,9 @@ function nativeFormat(
     throw new Error("ollama-native json_schema output requires a JSON schema object");
   }
   // Ollama's native contract takes the schema itself, unlike OpenAI's response_format wrapper.
-  return format.schema;
+  // llama.cpp-backed servers enforce the same every-key-required rule Google does,
+  // so partial OpenAI-style required lists are completed before the wire.
+  return completeStrictRequired(format.schema) as Record<string, unknown>;
 }
 
 function usageFromNative(value: JsonRecord | undefined): OcxUsage | undefined {

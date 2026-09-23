@@ -15,13 +15,18 @@ interface TargetCooldown {
 
 /**
  * Blind-failure cooldown: no Retry-After, no reset timestamp, no pinned value.
- * Kept short on purpose — a blind guess must not blackhole (single-target) combos
- * for a full minute with zero re-probing; authoritative upstream signals below win.
+ * 60s matches the shortest provider rate window: re-probing a refused target inside
+ * the same window only feeds the refusal loop (tests codify this as "the 60-second default";
+ * the 15s value kept a single-target combo in a live 429/529 loop for hours on 2026-09-16).
  */
-const DEFAULT_COOLDOWN_MS = 15_000;
+const DEFAULT_COOLDOWN_MS = 60_000;
 const MAX_COOLDOWN_MS = 10 * 60_000;
-/** Short cooldown for request-rate 429s (for example provider code 1302) that omit Retry-After. */
-export const COMBO_REQUEST_RATE_COOLDOWN_MS = 5_000;
+/** Cooldown for request-rate 429s (for example provider code 1302) that omit Retry-After.
+ * 60s matches the provider RPM window: retrying inside the same window only feeds the
+ * rate-limit storm that produced the 429 (observed live 2026-09-16 on Antigravity: 15s/5s
+ * blind re-probing kept a single-target combo in a 429/529 retry loop for hours while
+ * measured quota headroom was 95%+). */
+export const COMBO_REQUEST_RATE_COOLDOWN_MS = 60_000;
 
 const QUOTA_LIMIT_CODES = new Set([
   "1308",
@@ -175,6 +180,11 @@ export function isTransientRequestRateLimit(input: {
   ) {
     return false;
   }
+  // Google-family 429 bodies say "Resource has been exhausted (e.g. check quota)" for both
+  // per-minute rate windows and true quota caps. The quota probe is the authority for the
+  // latter; when headroom remains (measured live: 4.23%), the message is an RPM window and
+  // must cool for the full window instead of being blindly re-probed every 15s.
+  if (text.includes("resource has been exhausted")) return true;
   return text.includes("rate limit reached for requests");
 }
 
@@ -217,17 +227,24 @@ export function coolComboTarget(
   const writerGeneration = options?.writerGeneration ?? captureConfigGeneration();
   const ownerKey = `${comboId}::${targetKey(target)}`;
   if (writerGeneration < lastReconciledGeneration && !liveComboTargets.has(ownerKey)) return;
-  // A server-provided Retry-After is authoritative, including an immediate `0` directive.
-  // A quota reset is the next-most-specific signal (#3256); configured and default cooldowns
-  // are only fallbacks when upstream supplied neither usable value.
-  const cooldownMs = parseRetryAfterMs(options?.retryAfter, now, { preserveImmediate: true })
+  // A server-provided Retry-After is authoritative, including an immediate `0` directive —
+  // EXCEPT on a transient request-rate 429, where a short Retry-After (live observation:
+  // Antigravity returned ~5s) lands the re-probe INSIDE the same refused RPM window and
+  // restarts the storm the cooldown exists to break. A longer-than-window instruction
+  // still wins. A quota reset is the next-most-specific signal (#3256); configured and
+  // default cooldowns are only fallbacks when upstream supplied neither usable value.
+  const retryAfterMs = parseRetryAfterMs(options?.retryAfter, now, { preserveImmediate: true });
+  const rateWindow429 = isTransientRequestRateLimit({
+    status: options?.status,
+    code: options?.code,
+    message: options?.message,
+  });
+  const retryAfterHonoured = retryAfterMs !== undefined
+    && (!rateWindow429 || retryAfterMs >= COMBO_REQUEST_RATE_COOLDOWN_MS);
+  const cooldownMs = (retryAfterHonoured ? retryAfterMs : undefined)
     ?? parseResetCooldownMs(options?.resetAt, now)
     ?? options?.cooldownMs
-    ?? (isTransientRequestRateLimit({
-      status: options?.status,
-      code: options?.code,
-      message: options?.message,
-    }) ? COMBO_REQUEST_RATE_COOLDOWN_MS : DEFAULT_COOLDOWN_MS);
+    ?? (rateWindow429 ? COMBO_REQUEST_RATE_COOLDOWN_MS : DEFAULT_COOLDOWN_MS);
   targetCooldowns.set(cooldownMapKey(comboId, target), {
     cooldownUntil: now + Math.min(Math.max(cooldownMs, 1), MAX_COOLDOWN_MS),
   });

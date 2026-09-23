@@ -25,6 +25,7 @@ import {
   comboFailureCooldownScope,
 } from "../../combos";
 import { formatErrorResponse } from "../../bridge";
+import { eligibleFailoverAccounts } from "../../oauth/generic-account-failover";
 import {
   expandPreviousResponseInput,
   previousResponseScopeMismatch,
@@ -656,12 +657,17 @@ export async function executeComboResponses(
     );
     const failureNow = Date.now();
     const attemptedTargets = pick.attempted;
+    // 429 on a provider that still has uncooled spare accounts is account-scoped, not
+    // target-scoped: the adapter layer already cooled the failed account and rotated to a
+    // spare. Cooling the combo target here would lock a single-target combo into 503
+    // (client-visible 529) while spare accounts sit idle.
+    const hasSpareAccount = failure.response.status === 429 && eligibleFailoverAccounts(pick.target.provider, failureNow).length > 0;
     const nextPick = advanceComboAfterFailure(config, pick, {
-      retryAfter: failure.retryAfter,
-      resetAt: failure.resetAt,
+      retryAfter: hasSpareAccount ? null : failure.retryAfter,
+      resetAt: hasSpareAccount ? undefined : failure.resetAt,
       cooldownMs: combo.cooldownMs,
       now: failureNow,
-      cooldownScope: comboFailureCooldownScope(failure.response.status, failure.classificationText, {
+      cooldownScope: hasSpareAccount ? "none" : comboFailureCooldownScope(failure.response.status, failure.classificationText, {
         code: failure.upstreamCode,
       }),
       eligible: payloadEligible,

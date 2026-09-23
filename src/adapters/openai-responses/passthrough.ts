@@ -1,5 +1,6 @@
 import { normalizeRoutedAgentMessages } from "../routed-agent-messages";
 import { stripBracketedModelSuffix } from "../openai-chat";
+import { completeStrictRequired } from "../../lib/strict-schema-required";
 import { normalizeOpenCodeGoAdditionalTools } from "../opencode-go-additional-tools";
 import { isXaiResponsesDestination } from "../../providers/xai-transport";
 import { Buffer } from "node:buffer";
@@ -397,6 +398,20 @@ export function createResponsesPassthroughAdapter(provider: OcxProviderConfig): 
           && typeof (unnormalizedBody as { model?: unknown }).model === "string"
           ? { ...(unnormalizedBody as Record<string, unknown>), model: stripBracketedModelSuffix((unnormalizedBody as { model: string }).model) }
           : unnormalizedBody;
+      // OpenAI strict json_schema rejects a partial `required` list: live 2026-09-16, Claude
+      // Code's goal evaluator sends {ok,reason,impossible} with required:[ok,reason] and the
+      // Codex backend answers 400 "'required' is required to be supplied ... Missing
+      // 'impossible'". Complete the list additively before the wire so a passthrough schema
+      // stays legal without changing its semantics.
+      if (isPlainObject(finalBody)) {
+        const text = (finalBody as Record<string, unknown>).text;
+        if (isPlainObject(text)) {
+          const format = (text as Record<string, unknown>).format;
+          if (isPlainObject(format) && (format as Record<string, unknown>).type === "json_schema") {
+            (format as Record<string, unknown>).schema = completeStrictRequired((format as Record<string, unknown>).schema);
+          }
+        }
+      }
       if (isCanonicalOpenAiForwardProvider(provider)) {
         const routingHeaders = new Headers(headers);
         applyCodexRoutingHint(routingHeaders, finalBody);
