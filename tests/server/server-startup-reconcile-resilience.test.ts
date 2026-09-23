@@ -49,9 +49,22 @@ function canBindLoopback(): boolean {
   }
 }
 
+const IS_CI = process.env.CI === "true";
 const CAN_BIND = canBindLoopback();
 
-test.skipIf(!CAN_BIND)("startServer persists the Astra-first legacy roster upgrade", async () => {
+/**
+ * The graceful skip is for a restricted local sandbox only. In hosted CI a runner that cannot
+ * bind loopback is a broken runner, not an environment variation, and the unconditional
+ * `skipIf(!CAN_BIND)` deleted four startup assertions there with no trace in the summary. Under
+ * CI the cases run and fail on the real bind error instead.
+ */
+const SKIP_LISTENER = !CAN_BIND && !IS_CI;
+
+test.skipIf(!IS_CI)("hosted CI can bind a loopback listener for the startup cases", () => {
+  expect(CAN_BIND).toBe(true);
+});
+
+test.skipIf(SKIP_LISTENER)("startServer persists the legacy roster upgrade to the GPT-6 defaults", async () => {
   saveConfig({
     ...staleConfig(),
     subagentModels: ["gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.4-mini"],
@@ -59,8 +72,8 @@ test.skipIf(!CAN_BIND)("startServer persists the Astra-first legacy roster upgra
   const server = startServer(0);
   try {
     const saved = loadConfig();
-    expect(saved.subagentModels).toEqual(["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"]);
-    expect(saved.subagentModelsVersion).toBe(1);
+    expect(saved.subagentModels).toEqual(["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]);
+    expect(saved.subagentModelsVersion).toBe(2);
   } finally {
     await server.stop(true);
   }
