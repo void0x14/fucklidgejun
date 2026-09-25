@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { OcxConfig } from "./types";
 import { configReasoningPinsConfigError } from "./config/provider-validation";
@@ -14,6 +14,7 @@ import {
   projectConfigRebaseProvenance,
 } from "./config/rebase-provenance";
 import { getConfigDir, getConfigPath, hardenConfigDir } from "./config/paths";
+import { atomicWriteFile } from "./config/atomic-write";
 export { DEFAULT_SUBAGENT_MODELS } from "./config/subagent-models";
 export {
   AtomicWriteResidualTempError,
@@ -216,17 +217,52 @@ import {
  */
 const lastKnownGoodConfigs = new Map<string, OcxConfig>();
 
+/** Last snapshot bytes written per path, so steady-state loads stay read-only on disk. */
+const lastWrittenSnapshotByPath = new Map<string, string>();
+
+function snapshotPathFor(configPath: string): string {
+  return `${configPath}.lastgood`;
+}
+
 function rememberLastKnownGoodConfig(configPath: string, config: OcxConfig): OcxConfig {
   lastKnownGoodConfigs.set(configPath, config);
+  // Persist the shadow so a process that BOOTS during a broken-config window is
+  // covered too — the 2026-09-25 incident reached Codex mid-task exactly because
+  // the proxy restarted while the on-disk file was invalid, and a fresh process
+  // has no in-memory fallback. Best-effort: the in-memory fallback still applies
+  // when the write fails.
+  try {
+    const serialized = JSON.stringify(config, null, 2) + "\n";
+    if (lastWrittenSnapshotByPath.get(configPath) !== serialized) {
+      atomicWriteFile(snapshotPathFor(configPath), serialized);
+      lastWrittenSnapshotByPath.set(configPath, serialized);
+    }
+  } catch {
+    /* best-effort */
+  }
   return config;
 }
 
 function lastKnownGoodConfigFallback(configPath: string): OcxConfig | undefined {
   const stored = lastKnownGoodConfigs.get(configPath);
-  if (!stored) return undefined;
-  // Callers treat the returned config as their own: hand out a copy so an
-  // in-place mutation cannot corrupt the stored fallback.
-  return structuredClone(stored);
+  if (stored) return structuredClone(stored);
+  // Fresh process with no in-memory fallback: restore the on-disk snapshot. It was
+  // captured from a fully validated load, but never trust a file blindly.
+  const snapshotPath = snapshotPathFor(configPath);
+  if (!existsSync(snapshotPath)) return undefined;
+  try {
+    const result = configSchema.safeParse(JSON.parse(readFileSync(snapshotPath, "utf-8").replace(/^\uFEFF/, "")));
+    if (!result.success) return undefined;
+    return normalizeApiKeyIds(result.data as OcxConfig);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Test seam: forget in-memory fallbacks (NOT the on-disk snapshots) to simulate a fresh process. */
+export function resetLastKnownGoodConfigForTests(): void {
+  lastKnownGoodConfigs.clear();
+  lastWrittenSnapshotByPath.clear();
 }
 
 /**
@@ -246,8 +282,11 @@ export function loadConfig(): OcxConfig {
   hardenExistingSecret(join(dir, "auth.json"));
   if (!existsSync(configPath)) {
     // A missing file is the operator's reset, not a broken write: drop any
-    // fallback for this path so a later invalid write serves defaults, too.
+    // fallback and snapshot for this path so a later invalid write serves
+    // defaults, too.
     lastKnownGoodConfigs.delete(configPath);
+    lastWrittenSnapshotByPath.delete(configPath);
+    try { unlinkSync(snapshotPathFor(configPath)); } catch { /* nothing to drop */ }
     return withRefreshedCostOverlays(getDefaultConfig());
   }
   try {

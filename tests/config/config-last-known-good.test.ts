@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdtempSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getConfigPath, getDefaultConfig, loadConfig } from "../../src/config";
+import { getConfigPath, getDefaultConfig, loadConfig, resetLastKnownGoodConfigForTests } from "../../src/config";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 
 /**
@@ -93,11 +93,14 @@ test("a valid config written after the broken one replaces the served config", (
 test("a missing config file still resets instead of serving a stale fallback", () => {
   writeConfig(validConfig("xai", "xai-good"));
   expect(loadConfig().providers.xai).toBeDefined();
+  expect(existsSync(getConfigPath() + ".lastgood")).toBe(true);
 
   const path = getConfigPath();
   unlinkSync(path);
   expect(existsSync(path)).toBe(false);
   expect(loadConfig().providers.xai).toBeUndefined();
+  // Reset semantics extend to the snapshot: nothing stale survives the reset.
+  expect(existsSync(path + ".lastgood")).toBe(false);
 });
 
 test("another home's broken config never observes this home's fallback", () => {
@@ -130,4 +133,28 @@ test("the invalid-config warning names the last-known-good serving", () => {
   } finally {
     errorSpy.mockRestore();
   }
+});
+
+test("a fresh process restores the on-disk snapshot after booting on a broken config", () => {
+  writeConfig(validConfig("xai", "xai-good"));
+  expect(loadConfig().providers.xai).toBeDefined();
+  expect(existsSync(getConfigPath() + ".lastgood")).toBe(true);
+
+  // Simulate a restart: the in-memory fallback is gone, only the disk snapshot remains.
+  resetLastKnownGoodConfigForTests();
+  writeConfig(invalidConfig());
+  const restored = loadConfig();
+  expect((restored.providers.xai as { apiKey?: string }).apiKey).toBe("xai-good");
+  expect(restored.providers.workbuddy).toBeUndefined();
+});
+
+test("a corrupted snapshot falls through to defaults instead of failing the load", () => {
+  writeConfig(validConfig("xai", "xai-good"));
+  expect(loadConfig().providers.xai).toBeDefined();
+
+  resetLastKnownGoodConfigForTests();
+  writeFileSync(getConfigPath() + ".lastgood", "{ truncated", "utf8");
+  writeConfig(invalidConfig());
+  const served = loadConfig();
+  expect(served.providers.xai).toBeUndefined();
 });

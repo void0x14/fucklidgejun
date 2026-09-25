@@ -104,7 +104,11 @@ describe("reasoning pin config boundaries", () => {
       expect(warnings.join("\n")).not.toContain("do-not-log-pin-value");
       expect(warnings.join("\n")).not.toContain("clash");
       expect(readFileSync(getConfigPath(), "utf8")).toBe(before);
-      expect(readdirSync(directory).sort()).toEqual(filesBefore);
+      // The load may add the deliberate .lastgood shadow (and nothing else); the
+      // operator's own config.json must be byte-identical, as asserted above.
+      const filesAfter = readdirSync(directory).sort();
+      const allowed = [...filesBefore, "config.json.lastgood"].sort();
+      expect(filesAfter).toEqual(allowed);
     } finally { warn.mockRestore(); }
   });
 
