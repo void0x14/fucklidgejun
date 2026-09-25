@@ -147,7 +147,6 @@ export function clampGoogleMaxOutputTokens(
  */
 const GEMINI_DIRECT_WIRE_RENAMES: Record<string, string> = {
   "gemini-3.7-flash": "gemini-3.7-flash-tiered",
-  "gemini-3.6-flash": "gemini-3.6-flash-tiered",
 };
 
 function resolveDirectGeminiWireModelId(modelId: string, applyRenames: boolean): string {

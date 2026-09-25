@@ -358,6 +358,11 @@ export const CODEX_ACCOUNT_GATED_CANONICAL_WIRE_MODELS: ReadonlyMap<string, stri
   // account. Keep Daybreak as the admission/catalog identity, but use the stable serving id on
   // the credential-bearing wire after entitlement selection has completed.
   ["gpt-daybreak-blue-latest", "gpt-5.6-sol"],
+  ["gpt-6", "gpt-6-sol"],
+  ["gpt-6-pro", "gpt-6-sol"],
+  ["gpt-6-codex", "gpt-6-sol"],
+  ["gpt-6-mini", "gpt-6-luna"],
+  ["gpt-6-nano", "gpt-6-luna"],
 ]);
 
 

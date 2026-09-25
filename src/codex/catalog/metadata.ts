@@ -89,6 +89,7 @@ export const DOCUMENTED_NATIVE_OPENAI_ADDITIONS = [
   // client_version >= 0.155.0, so an installed catalog built by an older client lacks them.
   // Astra Minor is deliberately absent: it is gated, and nativeOpenAiSlugs() would drop it anyway.
   NATIVE_GPT6_SOL_MODEL, NATIVE_GPT6_LUNA_MODEL,
+  "gpt-6", "gpt-6-pro", "gpt-6-codex", "gpt-6-mini", "gpt-6-nano",
 ];
 
 export function configuredNativeAliasSlugs(
@@ -199,6 +200,11 @@ export const NATIVE_OPENAI_CONTEXT_OVERRIDES: Record<string, { contextWindow?: n
   // Astra Minor borrows Astra's row, so it inherits Astra's numbers. No account we hold can reach
   // it, so this is inheritance, not a measurement.
   [NATIVE_GPT6_ASTRA_MINOR_MODEL]: { ...NATIVE_GPT6_CONTEXT },
+  "gpt-6": { ...NATIVE_GPT6_CONTEXT },
+  "gpt-6-pro": { ...NATIVE_GPT6_CONTEXT },
+  "gpt-6-codex": { ...NATIVE_GPT6_CONTEXT },
+  "gpt-6-mini": { ...NATIVE_GPT6_CONTEXT },
+  "gpt-6-nano": { ...NATIVE_GPT6_CONTEXT },
   // Configured natives (providers.openai.models) are added at registration with the same pair.
 };
 

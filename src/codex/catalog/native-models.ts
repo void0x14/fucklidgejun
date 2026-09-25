@@ -105,6 +105,11 @@ export const ACCOUNT_GATED_NATIVE_OPENAI_MODELS: ReadonlySet<string> = new Set([
 const NATIVE_OPENAI_CAPABILITY_SOURCES: Readonly<Record<string, string>> = Object.freeze({
   [NATIVE_DAYBREAK_BLUE_MODEL]: "gpt-5.6-sol",
   [NATIVE_GPT6_ASTRA_MINOR_MODEL]: NATIVE_GPT6_ASTRA_MODEL,
+  "gpt-6": NATIVE_GPT6_SOL_MODEL,
+  "gpt-6-pro": NATIVE_GPT6_SOL_MODEL,
+  "gpt-6-codex": NATIVE_GPT6_SOL_MODEL,
+  "gpt-6-mini": NATIVE_GPT6_LUNA_MODEL,
+  "gpt-6-nano": NATIVE_GPT6_LUNA_MODEL,
 });
 
 /**
@@ -180,6 +185,26 @@ export const NATIVE_OPENAI_ALIAS_PRESENTATION: Readonly<Record<string, { display
     displayName: "GPT-6-Astra-Minor",
     description: "Unreleased GPT-6 Astra variant; shown only when your account's Codex roster lists it.",
   },
+  "gpt-6": {
+    displayName: "GPT-6",
+    description: "Next-generation flagship reasoning model.",
+  },
+  "gpt-6-pro": {
+    displayName: "GPT-6 Pro",
+    description: "Extended reasoning model for deep analysis.",
+  },
+  "gpt-6-codex": {
+    displayName: "GPT-6 Codex",
+    description: "Agentic coding and software engineering model.",
+  },
+  "gpt-6-mini": {
+    displayName: "GPT-6 Mini",
+    description: "Fast, cost-efficient model for focused tasks.",
+  },
+  "gpt-6-nano": {
+    displayName: "GPT-6 Nano",
+    description: "Ultra-fast low-latency lightweight model.",
+  },
 });
 
 export function nativeOpenAiAliasPresentation(slug: string): { displayName: string; description: string } | undefined {
@@ -224,6 +249,11 @@ const BUILT_IN_NATIVE_OPENAI_MODELS: readonly string[] = Object.freeze([
   NATIVE_GPT6_ASTRA_MODEL,
   NATIVE_GPT6_SOL_MODEL, NATIVE_GPT6_LUNA_MODEL,
   NATIVE_GPT6_ASTRA_MINOR_MODEL,
+  "gpt-6",
+  "gpt-6-pro",
+  "gpt-6-codex",
+  "gpt-6-mini",
+  "gpt-6-nano",
 ]);
 
 /**
@@ -342,4 +372,9 @@ export const NATIVE_MAIN_DRAIN_SENTINEL_MODELS: ReadonlySet<string> = new Set([
   // Astra Minor arrives through the gated spread above; Sol and Luna are ungated flagships.
   NATIVE_GPT6_SOL_MODEL,
   NATIVE_GPT6_LUNA_MODEL,
+  "gpt-6",
+  "gpt-6-pro",
+  "gpt-6-codex",
+  "gpt-6-mini",
+  "gpt-6-nano",
 ]);
