@@ -110,7 +110,13 @@ function compactionRequest(
 
 function baseCompactionBody(extra: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    model: "gw/some-model",
+    // A bare native model: Codex only calls the native compact surface for
+    // models whose catalog row carries native compaction, and the default
+    // provider here is the canonical ChatGPT forward surface — which refuses
+    // every unresolved non-native slug outright ("model is not supported when
+    // using Codex with a ChatGPT account"), so a placeholder namespace id would
+    // misrepresent what production can route.
+    model: "gpt-5.5",
     stream: false,
     input: [
       { type: "message", role: "user", content: [{ type: "input_text", text: "earlier turn" }] },

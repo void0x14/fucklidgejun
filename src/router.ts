@@ -855,13 +855,15 @@ function routeModelInternal(
     // google-antigravity/* rows alike). The honest routing error keeps the
     // refusal class unproducible through this path.
     //
-    // The compaction-scoped router is exempt: #2901 deliberately lands a bare
-    // native compaction model on the configured default provider instead of 404,
-    // and the native compact surface owns its own model handling downstream.
+    // Bare native models never reach here: the isBareOpenAiFamilyModel branch
+    // above resolves them (native-family, or the #2901 compaction fallback onto
+    // the configured default provider), so this gate cannot violate that
+    // contract — it only stops the unresolved NON-native slugs the backend
+    // refuses outright.
     const defaultProviderForCanonicalCheck = defaultProv.authMode === undefined
       ? { ...defaultProv, authMode: "forward" as const }
       : defaultProv;
-    if (!allowCompactionNativeFallback && isCanonicalOpenAiForwardProvider(defaultProviderForCanonicalCheck)) {
+    if (isCanonicalOpenAiForwardProvider(defaultProviderForCanonicalCheck)) {
       throw new Error(`No provider configured for model: ${modelId}`);
     }
     return routeResult(config, config.defaultProvider, defaultProv, modelId, "default-provider", "default-provider");
