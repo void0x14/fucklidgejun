@@ -71,6 +71,7 @@ export type AttemptRecoveryKind =
   | "rate-limit-429"
   | "anthropic-oauth-429"
   | "oauth-account-429"
+  | "oauth-account-403"
   | "image-413"
   | "console-go-upload-retry"
   | "opaque-blob-rejection"

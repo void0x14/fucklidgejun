@@ -416,6 +416,34 @@ function isRequestLocalTargetIncompatibility(status: number, message: string, co
   return false;
 }
 
+/**
+ * Whether a failure names ONE ACCOUNT rather than the provider or the request.
+ *
+ * A 403 is otherwise read as provider-wide evidence (`comboFailureCooldownScope` returns
+ * "provider"), which is right for a dead key and wrong for Google Antigravity's
+ * `VALIDATION_REQUIRED`: the backend refuses that single account until a human verifies it and
+ * keeps serving every other account on the same provider row. Cooling the provider scope there
+ * turned one unusable account into `No available targets` for the whole combo, so a single-target
+ * combo answered 503 to every request while healthy accounts sat idle.
+ *
+ * Only the account verdict counts. A 403 that names a model, a tier or a permission has no
+ * "other account works" reading, so it keeps the provider-scoped cooldown.
+ */
+export function isAccountScopedComboFailure(
+  status: number,
+  message: string,
+  options?: { code?: string | null },
+): boolean {
+  if (status === 429) return true;
+  if (status !== 403) return false;
+  const code = normalizedFailureCode(options?.code);
+  if (code && code !== "permission_denied" && code !== "account_disabled" && code !== "unauthenticated") {
+    return false;
+  }
+  return /verify your account|verify the account|account (?:is )?(?:blocked|suspended|disabled|not verified)/i
+    .test(message);
+}
+
 export function comboFailureCooldownScope(
   status: number,
   message: string,

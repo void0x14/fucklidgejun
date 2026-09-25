@@ -13,6 +13,8 @@ import {
   noteGenericPoolSelection,
   preferredInitialAccount,
   rotateGenericOAuthAccountOn429,
+  rotateGenericOAuthAccountOnAccessDenied,
+  isAccountScopedAccessDenied,
 } from "../../src/oauth/generic-account-failover";
 import { getAccountSet, markAccountNeedsReauth, saveCredential, setActiveAccount } from "../../src/oauth/store";
 import { clearAccountQuotaCache, setCachedProviderAccountQuotaForTests } from "../../src/providers/quota";
@@ -153,6 +155,56 @@ describe("#2568 generic OAuth account failover", () => {
     // The account may have been removed between dispatch and the 429 landing.
     const ids = await seed(2);
     expect(rotateGenericOAuthAccountOn429(config(), "xai", "not-a-real-account", null)).toBe(ids[0]);
+  });
+
+  test("an account-scoped 403 parks that account and rotates, where a 429 would not", async () => {
+    // Antigravity answers a flagged account with 403 PERMISSION_DENIED / VALIDATION_REQUIRED and
+    // keeps answering it: the allowance never resets, so the 429 cooldown would put the same dead
+    // account back into rotation inside a minute and every request would fail the same way. This
+    // is the shape that made one unusable account read as a broken proxy.
+    const ids = await seed(2);
+    const denied = new Response(JSON.stringify({
+      error: {
+        code: 403,
+        message: "Verify your account to continue.",
+        status: "PERMISSION_DENIED",
+        details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "VALIDATION_REQUIRED" }],
+      },
+    }), { status: 403, headers: { "Content-Type": "application/json" } });
+    expect(await isAccountScopedAccessDenied(denied)).toBe(true);
+    expect(rotateGenericOAuthAccountOnAccessDenied(config(), "xai", ids[0]!)).toBe(ids[1]);
+    // Parked, not merely delayed: it stays out of the eligible roster instead of coming back on
+    // the next rotation.
+    expect(eligibleFailoverAccounts("xai")).toEqual([ids[1]!]);
+  });
+
+  test("a 403 that names a model or permission is not account-scoped", async () => {
+    // The status alone must never rotate a credential: only Google's account verdict does. A
+    // model-permission refusal has to reach the client unchanged, and the sibling message the
+    // same backend sends for an unverified account is the one that does rotate.
+    for (const body of [
+      { error: { code: 403, status: "PERMISSION_DENIED", message: "The requested model alias is not granted to this identity." } },
+      { error: { code: 403, status: "PERMISSION_DENIED", message: "Permission denied for quota project." } },
+    ]) {
+      const res = new Response(JSON.stringify(body), { status: 403, headers: { "Content-Type": "application/json" } });
+      expect(await isAccountScopedAccessDenied(res)).toBe(false);
+    }
+    const unverified = new Response(JSON.stringify({
+      error: { code: 403, status: "PERMISSION_DENIED", message: "Verify your account to continue." },
+    }), { status: 403, headers: { "Content-Type": "application/json" } });
+    expect(await isAccountScopedAccessDenied(unverified)).toBe(true);
+    expect(await isAccountScopedAccessDenied(new Response("nope", { status: 500 }))).toBe(false);
+  });
+
+  test("the 403 rotator stays a no-op with one account and consumes the caller's body never", async () => {
+    // With a single account there is nowhere to rotate, and the classifier must leave the
+    // original response readable: it peeks at a clone, so the body the caller still has to send
+    // downstream is untouched.
+    const single = await seed(1);
+    expect(rotateGenericOAuthAccountOnAccessDenied(config(), "xai", single[0]!)).toBeNull();
+    const res = new Response(JSON.stringify({ error: { details: [{ reason: "VALIDATION_REQUIRED" }] } }), { status: 403 });
+    expect(await isAccountScopedAccessDenied(res)).toBe(true);
+    expect(await res.text()).toContain("VALIDATION_REQUIRED");
   });
 
   test("neither switch can turn REACTIVE rotation off, in either direction", async () => {
@@ -342,9 +394,12 @@ describe("sidecar on429 wiring", () => {
     // bearer by hand would reintroduce the mixed-identity bug this helper exists to prevent.
     const snapshotUses = coreSource.match(/failoverAccountSnapshot\(/g) ?? [];
     const helperUses = coreSource.match(/applyFailoverSnapshot\(snapshot(?:, nextParsed)?\)/g) ?? [];
-    // Five includes native Responses passthrough, which returns before the Chat bridge loop.
+    // Six includes native Responses passthrough, which returns before the Chat bridge loop, and
+    // the account-scoped 403 site in the adapter dispatch — a VALIDATION_REQUIRED account is
+    // refused the same way forever, so it is rotated through the same pairing helper rather than
+    // replayed or handed to the client.
     // The explicit count keeps a newly added rotation site from skipping identity pairing.
-    expect(snapshotUses.length).toBe(5);
+    expect(snapshotUses.length).toBe(6);
     expect(helperUses.length).toBe(snapshotUses.length);
     // The bearer is written in exactly one place — inside the helper. Any other occurrence is a
     // rotation site that skipped the pairing rules.

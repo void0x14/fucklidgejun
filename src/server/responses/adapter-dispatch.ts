@@ -54,6 +54,8 @@ import {
   GENERIC_OAUTH_MAX_FAILOVERS_PER_REQUEST,
   isGenericOAuthFailoverEnabled,
   rotateGenericOAuthAccountOn429,
+  rotateGenericOAuthAccountOnAccessDenied,
+  isAccountScopedAccessDenied,
   failoverAccountSnapshot,
 } from "../../oauth/generic-account-failover";
 import {
@@ -712,6 +714,53 @@ export async function prepareAdapterExchange(
       // see isGenericOAuthFailoverEnabled in src/oauth/generic-account-failover.ts. Codex and
       // Anthropic are excluded by isGenericFailoverProvider: their pools own quota scopes,
       // probe leases and affinity that this must not reimplement.
+      // A provider that refuses ONE account (Google Antigravity answers
+      // 403 PERMISSION_DENIED / VALIDATION_REQUIRED until that account is verified) must not take
+      // the whole request down: without this the same account is retried, and the combo's cooldown
+      // then answers every later request 503 "No available targets", so one bad account reads as a
+      // broken proxy. Only the account-scoped shape rotates; a 403 that names a model/permission
+      // instead of the identity keeps the original response.
+      if (upstreamResponse.status === 403
+        && transportState.genericFailoverAccountId
+        && isGenericOAuthFailoverEnabled(config, route.providerName)
+        && await isAccountScopedAccessDenied(upstreamResponse, upstream.signal)) {
+        const hop = reserveCredentialHop(
+          "auth-recovery",
+          `${route.providerName}|${route.modelId}|adapter-recovery-oauth-403`,
+        );
+        if (hop.allowed) {
+          const nextAccountId = rotateGenericOAuthAccountOnAccessDenied(
+            config,
+            route.providerName,
+            transportState.genericFailoverAccountId,
+          );
+          if (nextAccountId) {
+            try {
+              const snapshot = await failoverAccountSnapshot(route.providerName, nextAccountId);
+              if (await applyFailoverSnapshot(snapshot)) {
+                transportState.genericFailovers += 1;
+                invalidateSameTargetRequest();
+                transportState.activeAdapter = resolveSelectionAdapter(
+                  resolveWireProtocolOverride(route.providerName, route.modelId, route.provider, inboundWire),
+                  config.cacheRetention,
+                );
+                sealRequestAttemptIdentity(logCtx.activeAttempt, logCtx.provider, transportState.activeAdapter.name, logCtx.accountLogLabel);
+                recordAttemptCredentialSource(logCtx.activeAttempt, route.providerName, route.provider, transportState.activeAdapter.name);
+                const result = await rebuildAndRefetch("oauth-account-403", () => { hop.permit?.use(); });
+                if ("failed" in result) {
+                  hop.permit?.release();
+                  return result.failed;
+                }
+                upstreamResponse = result;
+                continue recovery;
+              }
+            } catch {
+              /* fall through to the release below */
+            }
+          }
+          hop.permit?.release();
+        }
+      }
       while (
         upstreamResponse.status === 429
         && transportState.genericFailoverAccountId

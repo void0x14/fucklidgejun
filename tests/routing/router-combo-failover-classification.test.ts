@@ -8,7 +8,7 @@ import {
   pickComboTarget,
   targetKey,
 } from "../../src/combos";
-import { comboFailureCooldownScope, comboFailureDecision } from "../../src/combos/failover";
+import { comboFailureCooldownScope, comboFailureDecision, isAccountScopedComboFailure } from "../../src/combos/failover";
 import { adapterFailureFromMessage, inferHttpStatusFromAdapterMessage } from "../../src/lib/errors";
 import type { OcxConfig } from "../../src/types";
 
@@ -99,6 +99,32 @@ describe("combo failure cooldown scope", () => {
   test("an ordinary target failure still cools only that target", () => {
     expect(comboFailureCooldownScope(500, "internal server error")).toBe("target");
     expect(comboFailureCooldownScope(429, "rate limit reached for requests")).toBe("target");
+  });
+
+  test("only the account verdict makes a 403 account-scoped", () => {
+    // The spare-account exemption in core-combo used to fire on 429 alone, so an Antigravity
+    // VALIDATION_REQUIRED 403 — refused for ONE account while every other account keeps serving —
+    // cooled the provider scope and answered `No available targets` to every later request.
+    expect(isAccountScopedComboFailure(429, "rate limit reached for requests")).toBe(true);
+    expect(isAccountScopedComboFailure(
+      403,
+      "Antigravity access denied: Verify your account to continue.",
+      { code: "permission_denied" },
+    )).toBe(true);
+    // A 403 that names a model, a tier or a permission is not an account verdict: cooling the
+    // provider is still right there, and rotating a credential cannot fix it.
+    for (const message of [
+      "The requested model alias is not granted to this identity.",
+      "Permission denied for quota project.",
+      "forbidden",
+    ]) {
+      expect(isAccountScopedComboFailure(403, message, { code: "permission_denied" })).toBe(false);
+    }
+    // A different upstream code with account wording is a different failure class.
+    expect(isAccountScopedComboFailure(403, "Verify your account to continue.", {
+      code: "model_not_found",
+    })).toBe(false);
+    expect(isAccountScopedComboFailure(500, "Verify your account to continue.")).toBe(false);
   });
 });
 

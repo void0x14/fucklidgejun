@@ -32,6 +32,7 @@ import {
   seedPoolRotationAccount,
 } from "./pool-kernel";
 import { parseRetryAfterMs } from "../combos/failover";
+import { readBoundedResponseBody } from "../lib/bounded-body";
 import { sweepExpiredOnWrite } from "../lib/state-store-sweeper";
 import type { OcxConfig, OcxProviderConfig } from "../types";
 
@@ -40,6 +41,16 @@ export const GENERIC_OAUTH_MAX_FAILOVERS_PER_REQUEST = 3;
 
 const DEFAULT_COOLDOWN_MS = 60_000;
 const MAX_COOLDOWN_MS = 15 * 60_000;
+
+/**
+ * Cooldown for an account the provider refused with an account-scoped 403.
+ *
+ * `VALIDATION_REQUIRED` (Google Antigravity / Cloud Code Assist) is not a rate limit: the account
+ * itself is refused until a human completes the provider's check, and every later request on that
+ * account returns the same 403. The short 429 cooldown would put the same dead account back into
+ * rotation within a minute, so this parks it for the full rotation ceiling instead.
+ */
+const ACCESS_DENIED_COOLDOWN_MS = 15 * 60_000;
 
 /**
  * How long a presence answer may be reused before the store is consulted again.
@@ -360,6 +371,72 @@ export function rotateGenericOAuthAccountOn429(
   // With no quota evidence this returns the ring untouched, so providers without
   // per-account quota keep exactly the traversal they have today.
   return rankAccountsByHeadroom(providerName, candidates)[0] ?? null;
+}
+
+/**
+ * Whether a 403 names the ACCOUNT rather than the request.
+ *
+ * Google is the shape that matters: Antigravity / Cloud Code Assist answers a flagged account with
+ * `PERMISSION_DENIED` + `VALIDATION_REQUIRED` and leaves every other account on the same install
+ * working. A 403 that names a model, a tier or a permission is NOT account-scoped and must keep
+ * its original response, so the decision reads the body instead of trusting the status alone. The
+ * read is bounded and taken from a clone, leaving the caller's body untouched.
+ */
+export async function isAccountScopedAccessDenied(
+  response: Response,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  if (response.status !== 403) return false;
+  try {
+    const body = await readBoundedResponseBody(response.clone(), { signal });
+    if (!body.displaySafe || body.truncated) return false;
+    const text = body.text;
+    // The explicit reason Google sends. Checked first so a body that merely says
+    // "permission denied" for a model is not mistaken for an account verdict.
+    if (/"reason"\s*:\s*"VALIDATION_REQUIRED"/i.test(text)) return true;
+    if (!/"status"\s*:\s*"PERMISSION_DENIED"/i.test(text)) return false;
+    return /verify your account|verify the account|account (?:is )?(?:blocked|suspended|not verified)/i.test(text);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Park an account the provider refused with an account-scoped 403 and return the account that
+ * should serve the request instead.
+ *
+ * The 429 rotator cannot be reused verbatim: its cooldown is sized for an allowance that resets,
+ * while `VALIDATION_REQUIRED` needs a human and does not clear on a timer. Traversal is the stable
+ * roster order rather than a quota ranking, because a refused account carries no usable headroom
+ * evidence and the operator's configured strategy must still be honoured by the ring.
+ */
+export function rotateGenericOAuthAccountOnAccessDenied(
+  config: OcxConfig,
+  providerName: string,
+  failedAccountId: string,
+  now = Date.now(),
+): string | null {
+  if (!isGenericOAuthFailoverEnabled(config, providerName)) return null;
+  const set = getAccountSet(providerName);
+  // A single stored account has nowhere to go; rotating to itself would just replay the 403.
+  if (!set || set.accounts.length < 2) return null;
+
+  health.set(healthKey(providerName, failedAccountId), {
+    cooldownUntil: now + ACCESS_DENIED_COOLDOWN_MS,
+    cooldownSource: "default",
+  });
+  sweepExpiredOnWrite(now);
+
+  const eligible = new Set(eligibleFailoverAccounts(providerName, now));
+  const order = set.accounts.map(account => account.id);
+  const start = order.indexOf(failedAccountId);
+  const ring = start >= 0 ? [...order.slice(start + 1), ...order.slice(0, start)] : order;
+  const next = ring.find(id => id !== failedAccountId && eligible.has(id));
+  if (!next) return null;
+  // A rotation means the roster in use just changed; do not answer the next activation question
+  // from a count read before the failure.
+  presence.delete(providerName);
+  return next;
 }
 
 /**

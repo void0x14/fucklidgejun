@@ -46,6 +46,7 @@ export {
   remainingComboCooldownMs,
   comboFailureDecision,
   comboFailureCooldownScope,
+  isAccountScopedComboFailure,
   type ComboFailureDecision,
   type ComboFailureCooldownScope,
 } from "./failover";
