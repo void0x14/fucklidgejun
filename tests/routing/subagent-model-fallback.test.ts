@@ -1087,10 +1087,13 @@ test("the native-main drain sentinel covers the flagships without widening to gp
     });
   });
 
-  test("selectAvailableSubagentModel allows raw slash model ids without provider namespaces", () => {
+  test("selectAvailableSubagentModel skips unroutable raw slash ids and selects the next candidate", () => {
     resetSubagentModelFallbackStateForTests();
-    // Health-block the primary model only. A raw vendor/model id still routes through the
-    // default provider; it must remain selectable (not rejected as an unknown namespace).
+    // Health-block the primary model only. A raw vendor/model id whose namespace
+    // matches no configured provider is unroutable — the default provider here is
+    // the canonical ChatGPT forward surface, which refuses such slugs with a
+    // "model is not supported when using Codex with a ChatGPT account" 400 — so
+    // the chain must skip it and select the next routable candidate instead.
     noteSubagentModelFailure("gpt-5.6-sol", "429", cfg());
     const selected = selectAvailableSubagentModel(
       "gpt-5.6-sol",
@@ -1102,9 +1105,9 @@ test("the native-main drain sentinel covers the flagships without widening to gp
       }),
     );
     expect(selected).toEqual({
-      model: "anthropic/claude-sonnet-4-6",
+      model: "kimi/k3",
       rewritten: true,
-      skipped: ["gpt-5.6-sol"],
+      skipped: ["gpt-5.6-sol", "anthropic/claude-sonnet-4-6"],
     });
   });
 

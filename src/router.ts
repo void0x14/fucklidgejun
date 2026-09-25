@@ -843,6 +843,27 @@ function routeModelInternal(
   if (hasOwnProvider(config.providers, config.defaultProvider)) {
     const defaultProv = config.providers[config.defaultProvider];
     if (defaultProv.disabled === true) throw new Error(`Default provider is disabled: ${config.defaultProvider}`);
+    // The canonical ChatGPT forward surface is never a valid destination for this
+    // fallback. It only runs after every namespace, default-model, pattern,
+    // configured-list and alias match has missed, so `modelId` here is a slug the
+    // active config cannot serve — and the ChatGPT backend refuses every model
+    // outside its own allowlist with a hard pre-stream 400 whose detail reads
+    // "The '<model>' model is not supported when using Codex with a ChatGPT
+    // account." Forwarding the unresolved slug there turns a routing miss into
+    // exactly that mid-task refusal in Codex (observed 2026-07-29 through
+    // 2026-09-25 for claude-*, opencode-zen/*, gemini-38, workbuddy/* and
+    // google-antigravity/* rows alike). The honest routing error keeps the
+    // refusal class unproducible through this path.
+    //
+    // The compaction-scoped router is exempt: #2901 deliberately lands a bare
+    // native compaction model on the configured default provider instead of 404,
+    // and the native compact surface owns its own model handling downstream.
+    const defaultProviderForCanonicalCheck = defaultProv.authMode === undefined
+      ? { ...defaultProv, authMode: "forward" as const }
+      : defaultProv;
+    if (!allowCompactionNativeFallback && isCanonicalOpenAiForwardProvider(defaultProviderForCanonicalCheck)) {
+      throw new Error(`No provider configured for model: ${modelId}`);
+    }
     return routeResult(config, config.defaultProvider, defaultProv, modelId, "default-provider", "default-provider");
   }
 

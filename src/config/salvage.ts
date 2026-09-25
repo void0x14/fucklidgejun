@@ -219,7 +219,13 @@ export function warnDroppedConfigSections(configPath: string, dropped: string[],
   );
 }
 
-export function warnAndBackupInvalidConfig(configPath: string, error: unknown): void {
+/**
+ * Warn once per config path, quarantine the broken file, and describe what the
+ * loader will actually serve while the file is broken. `fallbackNote` lets the
+ * caller state its own behaviour (the last-known-good serving in loadConfig);
+ * without one the historical default-config fallback is what happened.
+ */
+export function warnAndBackupInvalidConfig(configPath: string, error: unknown, fallbackNote?: string): void {
   if (hasWarnedConfigFallback(configPath)) return;
   markWarnedConfigFallback(configPath);
 
@@ -228,7 +234,7 @@ export function warnAndBackupInvalidConfig(configPath: string, error: unknown): 
     ? error.issues.map(issue => `${issue.path.join(".") || "config"}: ${issue.message}`).join("; ")
     : error instanceof Error ? error.message : String(error);
   const backupNote = backupPath ? ` A backup was written to ${backupPath}.` : "";
-  console.error(`Could not load opencodex config at ${configPath}: ${reason}. Using default config.${backupNote}`);
+  console.error(`Could not load opencodex config at ${configPath}: ${reason}. ${fallbackNote ?? "Using default config."}${backupNote}`);
 }
 
 export function backupInvalidConfig(configPath: string): string | null {
