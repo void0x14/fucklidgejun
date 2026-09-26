@@ -19,6 +19,26 @@ function toolNameCodec(names: readonly string[]): {
   const toWire = new Map<string, string>();
   const fromWire = new Map<string, string>();
   const used = new Set<string>();
+  // Stem index for hash-stripped echoes: cleaned pre-hash stem -> declared original,
+  // null when two declarations share one stem. Models sometimes echo the wire name
+  // without its `_<sha8>` suffix (observed 2026-09-26: `tavily_tavily_search` for
+  // declared `tavily_tavily-search`), and exact-match restore then misses it, leaving
+  // the undeclared-tool guard to fail the turn closed. The fallback below restores
+  // through this index only while the stem names exactly one declaration, mirroring
+  // the dotted-alias unambiguity rule: it never invents a grant, it only recovers the
+  // declared identity the model meant.
+  const stemOwners = new Map<string, string | null>();
+  const claimStem = (stem: string, original: string): void => {
+    const owner = stemOwners.get(stem);
+    if (owner === undefined) stemOwners.set(stem, original);
+    else if (owner !== original) stemOwners.set(stem, null);
+  };
+
+  const stemOf = (name: string): string => {
+    let cleaned = name.replace(/[^A-Za-z0-9_]/g, "_");
+    if (!/^[A-Za-z_]/.test(cleaned)) cleaned = `_${cleaned}`;
+    return (cleaned || "tool").slice(0, 55);
+  };
 
   for (const name of names) {
     if (toWire.has(name)) continue;
@@ -29,13 +49,12 @@ function toolNameCodec(names: readonly string[]): {
       continue;
     }
 
-    let cleaned = name.replace(/[^A-Za-z0-9_]/g, "_");
-    if (!/^[A-Za-z_]/.test(cleaned)) cleaned = `_${cleaned}`;
-    const prefix = (cleaned || "tool").slice(0, 55);
+    const stem = stemOf(name);
+    claimStem(stem, name);
     for (let salt = 0; ; salt++) {
       const hashInput = salt === 0 ? name : `${name}#${salt}`;
       const suffix = createHash("sha256").update(hashInput).digest("hex").slice(0, 8);
-      const candidate = `${prefix}_${suffix}`;
+      const candidate = `${stem}_${suffix}`;
       if (used.has(candidate)) continue;
       toWire.set(name, candidate);
       fromWire.set(candidate, name);
@@ -44,9 +63,24 @@ function toolNameCodec(names: readonly string[]): {
     }
   }
 
+  const restore = (name: string): string => {
+    const exact = fromWire.get(name);
+    if (exact !== undefined) return exact;
+    // Full-stem echo (hash dropped entirely).
+    const direct = stemOwners.get(name);
+    if (direct !== undefined && direct !== null) return direct;
+    // Truncated/corrupted hash shard: strip one trailing `_<hex{1,8}>` and retry.
+    const stripped = name.replace(/_[0-9a-fA-F]{1,8}$/, "");
+    if (stripped !== name) {
+      const owner = stemOwners.get(stripped);
+      if (owner !== undefined && owner !== null) return owner;
+    }
+    return name;
+  };
+
   return {
     toWire: name => toWire.get(name) ?? name,
-    fromWire: name => fromWire.get(name) ?? name,
+    fromWire: restore,
   };
 }
 

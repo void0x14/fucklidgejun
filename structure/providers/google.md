@@ -38,6 +38,21 @@ so matching uses the provider-visible tool name.
 
 > Decision record: [ADR-0057](../decisions/ADR-0057-google-tool-call-thought-signature-replay.md)
 
+## Google tool-call wire-name restore
+
+The Gemini wire rejects `[^A-Za-z0-9_]` in function names, so `toolNameCodec` in
+`src/adapters/google-wire-compiler.ts` rewrites each non-conforming declaration to
+`<cleaned-stem>_<sha8>` before the wire and restores the declared name on response.
+Models sometimes echo that wire name without its hash suffix (dashes also folded to
+underscores), and exact-match restore then misses it, which used to fail the turn closed
+at the undeclared-tool guard. Restore therefore falls back through a stem index:
+a hash-less echo recovers its declared identity only while its stem names exactly one
+declaration; an ambiguous stem or a stranger name still passes through so the guard
+keeps failing closed on real strangers. Exact wire echoes and already-valid names
+restore as before.
+
+> Decision record: [ADR-0097](../decisions/ADR-0097-google-wire-name-restore-fallback.md)
+
 ## Google tool-result adjacency repair
 
 Google-family requests serialize a model tool-call turn and its results as one adjacent
