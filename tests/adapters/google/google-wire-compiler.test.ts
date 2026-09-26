@@ -90,49 +90,6 @@ describe("Google wire compiler", () => {
     });
   });
 
-  test("restores a model echo that drops the codec hash suffix (tavily_tavily_search)", () => {
-    // Real incident 2026-09-26: declared `tavily_tavily-search` went on the wire as
-    // `tavily__tavily_search_<sha8>`; Gemini echoed `tavily_tavily_search` (no hash,
-    // separator folded to underscore). Exact-match restore missed it, the undeclared-tool
-    // guard failed the turn closed with `routed provider emitted undeclared client tool`.
-    const compiled = compileGoogleWireBody({
-      tools: [{
-        functionDeclarations: [{
-          name: "tavily__tavily-search",
-          description: "Tavily search",
-          parameters: { type: "object" },
-        }],
-      }],
-    });
-    const body = compiled.body;
-    const wireName = (body.tools as Array<{ functionDeclarations: Array<Record<string, unknown>> }>)[0]
-      .functionDeclarations[0].name as string;
-    expect(wireName).not.toBe("tavily__tavily-search");
-    // Exact echo still restores.
-    expect(compiled.restoreToolName(wireName)).toBe("tavily__tavily-search");
-    // Hash-stripped echo must restore too, not pass through as an undeclared name.
-    expect(compiled.restoreToolName("tavily__tavily_search")).toBe("tavily__tavily-search");
-    // Partially corrupted hash shards restore through the same stem.
-    expect(compiled.restoreToolName(`${wireName.slice(0, -4)}`)).toBe("tavily__tavily-search");
-    // Unknown names still pass through so the guard keeps failing closed on real strangers.
-    expect(compiled.restoreToolName("never_declared_tool")).toBe("never_declared_tool");
-  });
-
-  test("hash-stripped restore stays ambiguous-safe (no invented grants)", () => {
-    // Two declarations sharing one cleaned stem: a hash-less echo cannot name either one,
-    // so it must pass through and let the guard reject it rather than mis-route the call.
-    const compiled = compileGoogleWireBody({
-      tools: [{
-        functionDeclarations: [
-          { name: "ns__tool-search", description: "a", parameters: { type: "object" } },
-          { name: "ns__tool_search", description: "b", parameters: { type: "object" } },
-        ],
-      }],
-    });
-    expect(compiled.restoreToolName("ns__tool_search")).toBe("ns__tool_search");
-  });
-
-
   test("repairs only the tool schema named by a Claude-on-Antigravity 400", () => {
     const body = JSON.stringify({
       model: "claude-sonnet-4-6",

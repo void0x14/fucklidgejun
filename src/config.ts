@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { OcxConfig } from "./types";
 import { configReasoningPinsConfigError } from "./config/provider-validation";
@@ -14,7 +14,6 @@ import {
   projectConfigRebaseProvenance,
 } from "./config/rebase-provenance";
 import { getConfigDir, getConfigPath, hardenConfigDir } from "./config/paths";
-import { atomicWriteFile } from "./config/atomic-write";
 export { DEFAULT_SUBAGENT_MODELS } from "./config/subagent-models";
 export {
   AtomicWriteResidualTempError,
@@ -199,80 +198,11 @@ import {
 } from "./config/salvage";
 
 /**
- * Last successfully loaded config per on-disk config path.
- *
- * A config that fails validation is not evidence that the operator's previous one
- * was wrong — yet the old behaviour served bare defaults for every load that
- * spanned the failure, silently retiring every configured provider for the
- * duration. Routing then answers an ordinary mid-task request with an unrelated
- * upstream refusal instead of a routing error: on 2026-09-25 nine quarantined
- * writes in a two-minute window each served defaults, and unresolved routed slugs
- * were forwarded to the ChatGPT backend, surfacing in Codex as
- * "The '...' model is not supported when using Codex with a ChatGPT account."
- * (see the default-provider gate in src/router.ts for the other half of that fix).
- *
- * Keyed by path so concurrent homes in one process (tests, multi-root tooling)
- * can never observe each other's config. Cleared when the file itself is gone:
- * a genuinely missing file is the operator's reset, not a broken write.
- */
-const lastKnownGoodConfigs = new Map<string, OcxConfig>();
-
-/** Last snapshot bytes written per path, so steady-state loads stay read-only on disk. */
-const lastWrittenSnapshotByPath = new Map<string, string>();
-
-function snapshotPathFor(configPath: string): string {
-  return `${configPath}.lastgood`;
-}
-
-function rememberLastKnownGoodConfig(configPath: string, config: OcxConfig): OcxConfig {
-  lastKnownGoodConfigs.set(configPath, config);
-  // Persist the shadow so a process that BOOTS during a broken-config window is
-  // covered too — the 2026-09-25 incident reached Codex mid-task exactly because
-  // the proxy restarted while the on-disk file was invalid, and a fresh process
-  // has no in-memory fallback. Best-effort: the in-memory fallback still applies
-  // when the write fails.
-  try {
-    const serialized = JSON.stringify(config, null, 2) + "\n";
-    if (lastWrittenSnapshotByPath.get(configPath) !== serialized) {
-      atomicWriteFile(snapshotPathFor(configPath), serialized);
-      lastWrittenSnapshotByPath.set(configPath, serialized);
-    }
-  } catch {
-    /* best-effort */
-  }
-  return config;
-}
-
-function lastKnownGoodConfigFallback(configPath: string): OcxConfig | undefined {
-  const stored = lastKnownGoodConfigs.get(configPath);
-  if (stored) return structuredClone(stored);
-  // Fresh process with no in-memory fallback: restore the on-disk snapshot. It was
-  // captured from a fully validated load, but never trust a file blindly.
-  const snapshotPath = snapshotPathFor(configPath);
-  if (!existsSync(snapshotPath)) return undefined;
-  try {
-    const result = configSchema.safeParse(JSON.parse(readFileSync(snapshotPath, "utf-8").replace(/^\uFEFF/, "")));
-    if (!result.success) return undefined;
-    return normalizeApiKeyIds(result.data as OcxConfig);
-  } catch {
-    return undefined;
-  }
-}
-
-/** Test seam: forget in-memory fallbacks (NOT the on-disk snapshots) to simulate a fresh process. */
-export function resetLastKnownGoodConfigForTests(): void {
-  lastKnownGoodConfigs.clear();
-  lastWrittenSnapshotByPath.clear();
-}
-
-/**
  * Load and validate config.json into an OcxConfig. Missing files reset to
- * defaults and clear stale overlays. Broken existing files keep serving the last
- * successfully loaded config for that path (after backup) so a transiently
- * invalid write cannot retire the operator's providers mid-flight, and fall back
- * to default routing only when no such config was ever observed in this process.
- * A partially-invalid config is merged with defaults so providers and pool
- * accounts survive.
+ * defaults and clear stale overlays. Broken existing files also fall back to
+ * default routing (after backup), but keep the last-good cost-overlay registry
+ * until a valid config or a genuinely missing file is observed. A partially-
+ * invalid config is merged with defaults so providers and pool accounts survive.
  */
 export function loadConfig(): OcxConfig {
   const dir = getConfigDir();
@@ -281,12 +211,6 @@ export function loadConfig(): OcxConfig {
   hardenExistingSecret(configPath);
   hardenExistingSecret(join(dir, "auth.json"));
   if (!existsSync(configPath)) {
-    // A missing file is the operator's reset, not a broken write: drop any
-    // fallback and snapshot for this path so a later invalid write serves
-    // defaults, too.
-    lastKnownGoodConfigs.delete(configPath);
-    lastWrittenSnapshotByPath.delete(configPath);
-    try { unlinkSync(snapshotPathFor(configPath)); } catch { /* nothing to drop */ }
     return withRefreshedCostOverlays(getDefaultConfig());
   }
   try {
@@ -321,7 +245,7 @@ export function loadConfig(): OcxConfig {
       warnDegradedCatalogAutoRefresh(parsed);
       warnDegradedCodexPool(parsed);
       warnDegradedCredentialGroups(parsed);
-      return rememberLastKnownGoodConfig(configPath, withRefreshedCostOverlays(normalizeClaudeSubagentEffort(normalizeNativeSubagentSync(config, parsed), parsed)));
+      return withRefreshedCostOverlays(normalizeClaudeSubagentEffort(normalizeNativeSubagentSync(config, parsed), parsed));
     }
     // Schema validation failed — merge defaults into the raw object instead of
     // discarding it entirely, so pool accounts and providers survive a missing
@@ -349,7 +273,7 @@ export function loadConfig(): OcxConfig {
       warnDegradedCatalogAutoRefresh(parsed);
       warnDegradedCodexPool(parsed);
       warnDegradedCredentialGroups(parsed);
-      return rememberLastKnownGoodConfig(configPath, withRefreshedCostOverlays(normalizeClaudeSubagentEffort(normalizeNativeSubagentSync(config, parsed), parsed)));
+      return withRefreshedCostOverlays(normalizeClaudeSubagentEffort(normalizeNativeSubagentSync(config, parsed), parsed));
     }
     // Still failing, but if every complaint is about one or more named entries
     // in an independent section, drop exactly those and keep the rest. Falling
@@ -378,22 +302,15 @@ export function loadConfig(): OcxConfig {
         warnDegradedCatalogAutoRefresh(parsed);
         warnDegradedCodexPool(parsed);
         warnDegradedCredentialGroups(parsed);
-        return rememberLastKnownGoodConfig(configPath, withRefreshedCostOverlays(normalizeClaudeSubagentEffort(normalizeNativeSubagentSync(config, parsed), parsed)));
+        return withRefreshedCostOverlays(normalizeClaudeSubagentEffort(normalizeNativeSubagentSync(config, parsed), parsed));
       }
     }
-    // Merge couldn't fix it — truly broken config. Keep serving the last good
-    // config for this path; defaults would retire every provider mid-flight.
-    const lastGood = lastKnownGoodConfigFallback(configPath);
-    warnAndBackupInvalidConfig(
-      configPath,
-      result.error,
-      lastGood ? "Serving the last known good config until a valid one is written." : undefined,
-    );
-    return lastGood ?? getDefaultConfig();
+    // Merge couldn't fix it — truly broken config
+    warnAndBackupInvalidConfig(configPath, result.error);
+    return getDefaultConfig();
   } catch (error) {
-    const lastGood = lastKnownGoodConfigFallback(configPath);
-    warnAndBackupInvalidConfig(configPath, error, lastGood ? "Serving the last known good config until a valid one is written." : undefined);
-    return lastGood ?? getDefaultConfig();
+    warnAndBackupInvalidConfig(configPath, error);
+    return getDefaultConfig();
   }
 }
 
