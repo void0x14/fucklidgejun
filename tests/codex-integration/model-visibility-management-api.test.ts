@@ -688,4 +688,36 @@ describe("provider workspace custom-model API round trips", () => {
     expect(loadConfig().codexAccountNamespaces).toEqual({ desktop: "@main" });
     expect(refreshes).toBe(1);
   });
+
+  test("a combo alias shadows its provider row, and includeShadowed=1 restores it for the admin picker", async () => {
+    const provider = "google-antigravity";
+    const modelId = "gemini-3.6-flash";
+    const slug = routedSlug(provider, modelId);
+    const config = loadConfig();
+    // Give the physical row a capability the picker must be able to read back.
+    config.providers[provider]!.modelInputModalities = { [modelId]: ["text", "image"] };
+    config.combos = {
+      ...config.combos,
+      masquerade: { alias: slug, targets: [{ provider, model: modelId }] },
+    };
+    saveConfig(config);
+
+    // Default list: one slug, one winner — the client-facing export must keep this shape.
+    expect((await readRows()).filter(row => row.namespaced === slug)).toEqual([
+      expect.objectContaining({ provider: "combo", id: "masquerade" }),
+    ]);
+
+    const restoredResponse = await request("GET", "/api/models?includeShadowed=1");
+    expect(restoredResponse.status).toBe(200);
+    const restored = (await restoredResponse.json() as ManagementModelRow[])
+      .filter(row => row.namespaced === slug);
+    // The target editor resolves a target by (provider, id), so both rows survive: the combo
+    // keeps the public slug and the provider row keeps the capabilities the switch reads.
+    expect(restored).toHaveLength(2);
+    expect(restored.find(row => row.provider === provider)).toMatchObject({
+      id: modelId,
+      inputModalities: ["text", "image"],
+    });
+    expect(restored.find(row => row.provider === "combo")?.id).toBe("masquerade");
+  });
 });

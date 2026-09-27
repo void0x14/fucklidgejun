@@ -74,10 +74,16 @@ export function effectiveManagementDisplayName(
  * The exact row list `/api/models` returns. Extracted so `/api/client-config` exports the
  * models the GUI's Models tab shows — including this function's `disabled` computation,
  * which the export core (src/clients/config-export.ts) deliberately does not perform.
+ *
+ * `includeShadowedProviderRows` is for the admin pickers only (today the Combos target
+ * editor). A combo alias that spells a real `provider/model` slug wins the public slug and
+ * hides that provider row from the list, which leaves a combo targeting it unable to resolve
+ * the target's capabilities — the image/multimodal switch reads this list. The client-facing
+ * export must keep the shadow (one slug, one winner), so this stays opt-in and defaults off.
  */
 export async function listManagementModelRows(
   config: OcxConfig,
-  options: { entitlementWaitMs?: number } = {},
+  options: { entitlementWaitMs?: number; includeShadowedProviderRows?: boolean } = {},
 ): Promise<ManagementModelRow[]> {
   const [models] = await Promise.all([
     fetchAllModels(config),
@@ -146,7 +152,9 @@ export async function listManagementModelRows(
       ...(cm.defaultReasoningEffort ? { defaultReasoningEffort: cm.defaultReasoningEffort } : {}),
     };
   });
-  const publicModels = uniqueCatalogModelsForPublicList(models);
+  const publicModels = uniqueCatalogModelsForPublicList(models, {
+    includeShadowedProviderRows: options.includeShadowedProviderRows,
+  });
   // Custom rows below are REBUILT from config.customModels rather than spread from a
   // CatalogModel, so every field gather computed for the same slug has to be carried across by
   // hand. Without this a custom model whose provider is out of credit would be the one row on

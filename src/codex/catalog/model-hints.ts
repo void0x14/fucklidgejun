@@ -175,6 +175,19 @@ export function configuredInputModalities(prov: OcxProviderConfig, id: string): 
   return Array.isArray(modalities) && modalities.length > 0 ? [...modalities] : undefined;
 }
 
+/**
+ * Vendor-table input modalities for one provider row, or undefined when the table has no
+ * opinion. `getModelMetadataCaseInsensitive` mirrors the lookup the vision sidecar uses, so
+ * an id whose casing differs from the vendored snapshot still resolves.
+ */
+function vendorInputModalities(providerName: string, id: string): string[] | undefined {
+  const metadataProvider = resolveMetadataProvider(providerName);
+  if (!metadataProvider) return undefined;
+  const metadata = getModelMetadata(metadataProvider, id)
+    ?? getModelMetadataCaseInsensitive(metadataProvider, id);
+  return Array.isArray(metadata?.input) && metadata.input.length > 0 ? [...metadata.input] : undefined;
+}
+
 /** Exact display-only override for one provider-native model id. */
 export function configuredModelDisplayName(
   prov: OcxProviderConfig,
@@ -294,6 +307,18 @@ export function applyProviderConfigHints(
   if (sidecarCovered) {
     const base = inputModalities ?? model.inputModalities ?? ["text"];
     inputModalities = base.includes("image") ? [...base] : [...base, "image"];
+  }
+  // Google's `GET /v1beta/models` list carries no modality field at all (only name, token
+  // limits and supportedGenerationMethods), so a live-discovered Gemini row would advertise
+  // nothing here. The catalog then falls back to text-only, which blocks image attachments in
+  // the Codex picker and collapses a combo's derived modalities to text — even though the
+  // Google adapter carries image parts as `inline_data` for every Gemini model. The vendored
+  // vendor table is the same authority the vision sidecar already trusts
+  // (`modelAcceptsImageInput`), so consult it only for the Google wire when neither discovery
+  // nor config spoke. Other adapters publish modalities in their own discovery payload, so a
+  // provider-wide fallback would rewrite rows that already know their own answer.
+  if (inputModalities === undefined && model.inputModalities === undefined && prov.adapter === "google") {
+    inputModalities = vendorInputModalities(name, model.id);
   }
   const reasoningEfforts = configuredReasoningEfforts(prov, model.id);
   const defaultReasoningEffort = modelRecordValue(prov.modelDefaultReasoningEfforts, model.id) ?? model.defaultReasoningEffort;

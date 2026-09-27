@@ -427,3 +427,57 @@ test("exact capability modalities override legacy catalog hints and clear back t
   provider.modelCapabilities!.ModelA = { inputModalities: ["text"] };
   expect(hint("ModelA")).toEqual(["text", "image"]);
 });
+
+/*
+ * The Gemini API's `GET /v1beta/models` list carries no modality field, so a live-discovered
+ * Google row arrives with nothing for `inputModalities` to read. Before the vendor-table
+ * fallback the catalog published those rows as text-only, which blocked image attachments in
+ * the Codex picker and collapsed a combo's derived modalities to text. The switch is only for
+ * the Google wire and only when discovery and config are both silent — every other adapter
+ * publishes its own modalities, and an explicit answer must never be overwritten.
+ */
+describe("Google discovery modalities fall back to the vendor table", () => {
+  const google: OcxProviderConfig = {
+    adapter: "google",
+    baseUrl: "https://generativelanguage.googleapis.com",
+    authMode: "key",
+  };
+
+  test("a discovered Gemini row the payload left silent advertises image input", () => {
+    const hinted = applyProviderConfigHints("google", google, { id: "gemini-3.5-flash", provider: "google" });
+    expect(hinted.inputModalities).toEqual(["text", "image"]);
+  });
+
+  test("a vendor row the table marks text-only stays text-only", () => {
+    const hinted = applyProviderConfigHints("google", google, {
+      id: "gemini-live-2.5-flash-preview-native-audio", provider: "google",
+    });
+    expect(hinted.inputModalities).toEqual(["text"]);
+  });
+
+  test("an id the vendor table does not list is left untouched", () => {
+    const hinted = applyProviderConfigHints("google", google, { id: "gemini-3.5-transcribe", provider: "google" });
+    expect(hinted.inputModalities).toBeUndefined();
+  });
+
+  test("discovery's own answer wins over the vendor table", () => {
+    const hinted = applyProviderConfigHints("google", google, {
+      id: "gemini-3.5-flash", provider: "google", inputModalities: ["text"],
+    });
+    expect(hinted.inputModalities).toEqual(["text"]);
+  });
+
+  test("configured modalities win over the vendor table", () => {
+    // A declaration that names no text input never reaches the vision-sidecar rewrite, so it
+    // survives verbatim and proves the vendor table is a fallback rather than an override.
+    const prov: OcxProviderConfig = { ...google, modelInputModalities: { "gemini-3.5-flash": ["audio"] } };
+    const hinted = applyProviderConfigHints("google", prov, { id: "gemini-3.5-flash", provider: "google" });
+    expect(hinted.inputModalities).toEqual(["audio"]);
+  });
+
+  test("a non-Google adapter is not rewritten by the vendor table", () => {
+    const chat: OcxProviderConfig = { adapter: "openai-chat", baseUrl: "https://example.test/v1" };
+    const hinted = applyProviderConfigHints("google", chat, { id: "gemini-3.5-flash", provider: "google" });
+    expect(hinted.inputModalities).toBeUndefined();
+  });
+});

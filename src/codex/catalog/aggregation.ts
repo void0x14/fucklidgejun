@@ -424,7 +424,10 @@ export function resolveSlugAliasCollisions(goModels: CatalogModel[]): Set<Catalo
   return skipped;
 }
 
-export function uniqueCatalogModelsForPublicList(goModels: CatalogModel[]): CatalogModel[] {
+export function uniqueCatalogModelsForPublicList(
+  goModels: CatalogModel[],
+  options: { includeShadowedProviderRows?: boolean } = {},
+): CatalogModel[] {
   const collisionSkipped = resolveSlugAliasCollisions(goModels);
   const comboPublicSlugs = new Set(goModels
     .filter(model => model.provider === COMBO_NAMESPACE)
@@ -434,12 +437,18 @@ export function uniqueCatalogModelsForPublicList(goModels: CatalogModel[]): Cata
   for (const model of goModels) {
     if (collisionSkipped.has(model)) continue;
     const slug = catalogModelSlug(model);
-    if (model.provider !== COMBO_NAMESPACE && comboPublicSlugs.has(slug)) {
+    const shadowedByCombo = model.provider !== COMBO_NAMESPACE && comboPublicSlugs.has(slug);
+    if (shadowedByCombo && options.includeShadowedProviderRows !== true) {
       warnComboMasqueradeCollisionOnce(slug);
       continue;
     }
-    if (seen.has(slug)) continue;
-    seen.add(slug);
+    // A shadowed provider row shares the winning combo's slug, so the plain slug key would
+    // drop the second row. The admin picker that asks for both resolves a target by
+    // (provider, id), so keying the dedup by provider keeps the pair distinguishable while
+    // leaving every unshadowed row on the original slug key.
+    const key = shadowedByCombo ? `${model.provider}::${slug}` : slug;
+    if (seen.has(key)) continue;
+    seen.add(key);
     out.push(model);
   }
   return out;

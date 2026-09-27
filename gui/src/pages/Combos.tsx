@@ -116,7 +116,11 @@ export default function Combos({
       // Signals were missing entirely, so resource cleanup could not cancel these.
       fetch(`${apiBase}/api/combos`, { signal }),
       fetch(`${apiBase}/api/config`, { signal }),
-      fetch(`${apiBase}/api/models`, { signal }),
+      // `includeShadowed=1` keeps provider rows a combo alias shadows out of the public list.
+      // Without it a target spelled like a combo's alias (`google/gemini-3.8-flash`) is absent
+      // from `models`, so the capability switch cannot see that the target accepts images and
+      // the model dropdown drops an option the combo is already routing to.
+      fetch(`${apiBase}/api/models?includeShadowed=1`, { signal }),
     ]);
     if (!combosRes.ok || !configRes.ok || !modelsRes.ok) {
       throw new Error("combo workspace load failed");

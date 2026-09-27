@@ -369,7 +369,12 @@ export async function handleModelRoutes(ctx: ManagementContext): Promise<Respons
   }
 
   if (url.pathname === "/api/models" && req.method === "GET") {
-    return jsonResponse(await listManagementModelRows(config));
+    // Admin pickers (the Combos target editor) need provider rows a combo alias shadows out of
+    // the public list, otherwise a target's capabilities cannot be resolved. Opt-in so the
+    // default list — and the `/api/client-config` export built from it — keeps one slug, one
+    // winner.
+    const includeShadowedProviderRows = url.searchParams.get("includeShadowed") === "1";
+    return jsonResponse(await listManagementModelRows(config, { includeShadowedProviderRows }));
   }
 
   const modelCostsMatch = url.pathname.match(/^\/api\/providers\/([^/]+)\/model-costs$/);
