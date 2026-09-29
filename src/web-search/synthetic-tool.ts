@@ -12,10 +12,27 @@ export function extractHostedWebSearch(tools: unknown[] | undefined): Record<str
   if (!Array.isArray(tools)) return undefined;
   for (const t of tools) {
     if (t && typeof t === "object" && (t as { type?: string }).type === "web_search") {
-      return t as Record<string, unknown>;
+      return sanitizeHostedWebSearchTool(t as Record<string, unknown>);
     }
   }
   return undefined;
+}
+
+/**
+ * The ChatGPT (codex) backend requires `filters.allowed_domains` whenever `filters` is present, and
+ * rejects `filters: {}` with 400 "Missing required parameter: 'tools[0].filters.allowed_domains'".
+ * Clients (Grok's own web_search tool) send an empty `filters` object, which used to be forwarded
+ * verbatim and killed every sidecar search. Drop an empty/domain-less `filters` so the tool means
+ * "search everywhere" — the same shape the backend accepts.
+ */
+function sanitizeHostedWebSearchTool(tool: Record<string, unknown>): Record<string, unknown> {
+  const filters = tool.filters;
+  if (!filters || typeof filters !== "object" || Array.isArray(filters)) return tool;
+  const allowed = (filters as { allowed_domains?: unknown }).allowed_domains;
+  const hasAllowed = Array.isArray(allowed) && allowed.length > 0;
+  if (hasAllowed) return tool;
+  const { filters: _filters, ...rest } = tool;
+  return rest;
 }
 
 /**

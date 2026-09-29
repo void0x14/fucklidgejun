@@ -4,7 +4,7 @@ import { namespacedToolName, toolChoiceToolPredicate } from "../types";
 import { cloneProviderOpaqueToolCallMetadata } from "../responses/provider-opaque-metadata";
 import type { AttemptRecoveryKind } from "../usage/log";
 import { isTruncatedStopReason } from "../responses/truncated-stop-reason";
-import { bridgeToResponsesSSE } from "../bridge";
+import { bridgeToResponsesSSE, buildResponseJSON } from "../bridge";
 import { runWebSearch, type SidecarOutcome, type SidecarOutcomeRecorder, type SidecarSettings } from "./executor";
 import { runAnthropicWebSearch } from "./anthropic-executor";
 import { runXaiWebSearch, type XaiSearchOptions } from "./xai-executor";
@@ -944,24 +944,37 @@ export async function runWithWebSearch(deps: WebSearchLoopDeps): Promise<Respons
     }
   }
 
+  const bridgeOptions = {
+    translatorBudget,
+    replayCacheScope: parsed._reasoningReplayScope,
+    ...(deps.forceEmptyResponseId ? { responseId: "" } : {}),
+    hideThinkingSummary: parsed.options.hideThinkingSummary,
+    ...(deps.stallTimeoutSec !== undefined ? { stallTimeoutSec: deps.stallTimeoutSec } : {}),
+    ...(deps.onFirstOutput ? { onFirstOutput: deps.onFirstOutput } : {}),
+    ...(deps.onUsage ? { onUsage: deps.onUsage } : {}),
+    ...(deps.onCompletedResponse ? { onCompletedResponse: deps.onCompletedResponse } : {}),
+  };
+  const onClientClose = (): void => {
+    const elapsed = Date.now() - loopT0;
+    if (executedSearchCount > 0 || searchesExecuted > 0) {
+      console.warn(`[web-search-loop] cancelled — ${executedSearchCount} real searches, ${searchesExecuted - executedSearchCount} placeholders, ${elapsed}ms`);
+    }
+    internalAbort.abort("client closed responses stream");
+  };
+  // The caller asked for a bounded JSON answer (stream:false). The sidecar loop always drives its
+  // routed-model iterations with `stream: true`, and the bridge only serializes SSE, so a
+  // non-streaming client received `text/event-stream` and failed to parse it ("expected value at
+  // line 1 column 1" — Grok's web_search tool). Buffer the same event sequence into the canonical
+  // Responses JSON instead, exactly as adapter-delivery.ts does for non-streaming turns.
+  if (!parsed.stream) {
+    const events: AdapterEvent[] = [];
+    for await (const event of produce()) events.push(event);
+    const json = buildResponseJSON(events, parsed._responseModelId ?? parsed.modelId, bridgeOptions);
+    return new Response(JSON.stringify(json), { headers: { "Content-Type": "application/json" } });
+  }
   const sse = bridgeToResponsesSSE(
-    produce(), parsed._responseModelId ?? parsed.modelId, toolNsMap, freeform, toolSearch, () => {
-      const elapsed = Date.now() - loopT0;
-      if (executedSearchCount > 0 || searchesExecuted > 0) {
-        console.warn(`[web-search-loop] cancelled — ${executedSearchCount} real searches, ${searchesExecuted - executedSearchCount} placeholders, ${elapsed}ms`);
-      }
-      internalAbort.abort("client closed responses stream");
-    }, undefined,
-    {
-      translatorBudget,
-      replayCacheScope: parsed._reasoningReplayScope,
-      ...(deps.forceEmptyResponseId ? { responseId: "" } : {}),
-      hideThinkingSummary: parsed.options.hideThinkingSummary,
-      ...(deps.stallTimeoutSec !== undefined ? { stallTimeoutSec: deps.stallTimeoutSec } : {}),
-      ...(deps.onFirstOutput ? { onFirstOutput: deps.onFirstOutput } : {}),
-      ...(deps.onUsage ? { onUsage: deps.onUsage } : {}),
-      ...(deps.onCompletedResponse ? { onCompletedResponse: deps.onCompletedResponse } : {}),
-    },
+    produce(), parsed._responseModelId ?? parsed.modelId, toolNsMap, freeform, toolSearch, onClientClose, undefined,
+    bridgeOptions,
   );
   return new Response(sse, { headers: SSE_HEADERS });
 }
