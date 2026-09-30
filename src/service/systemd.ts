@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, unlinkSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { getConfigDir } from "../config";
@@ -83,10 +82,19 @@ export function buildUnit(
     ...proxyEnv.map(({ name, value }) => systemdEnvironmentAssignment(name, value)),
   ].filter((line): line is string => Boolean(line)).join("\n");
   const command = `${launcher ? buildServiceLauncherShellCommand(launcher) : buildServiceShellCommand(bun, cli)} >> ${shellQuote(log)} 2>&1`;
+  // home.mount ordering: on btrfs/multi-disk hosts, /home can be mounted AFTER the user
+  // manager starts. When that happens, every unit under ~/.config/systemd/user (including
+  // this one) is invisible to the user manager at default.target evaluation time, so the
+  // enabled unit is never queued and the proxy is silently absent until a manual start.
+  // `After=`/`Wants=` here keep the unit ordered behind the home mount whenever the unit
+  // is loaded; the user@.service drop-in written by ensureUserManagerHomeWaitDropIn()
+  // covers the harder case where the user manager itself must wait for /home to exist.
   return `[Unit]
 Description=OpenCodex Proxy Server
 After=network-online.target
+After=home.mount
 Wants=network-online.target
+Wants=home.mount
 
 [Service]
 Type=simple
@@ -133,8 +141,59 @@ export function isSystemd(): boolean {
   return userRuntimeDir() !== null;
 }
 
+/**
+ * Whether the user manager started before /home was mounted, leaving every
+ * `~/.config/systemd/user` unit invisible to it (units never queued at boot).
+ * Detects the boot race the drop-in below prevents; false when uncertain.
+ */
+export function userManagerStartedBeforeHomeMount(
+  deps: { show?: (unit: string, property: string) => string } = {},
+): boolean {
+  const exec = (command: string) => execSync(command, { stdio: "pipe" }).toString();
+  const show = deps.show ?? ((unit: string, property: string) => exec(`systemctl show ${unit} -p ${property} --value`));
+  try {
+    const userUpAt = Number(show("--user", "ActiveEnterTimestampMonotonic").trim());
+    if (!Number.isFinite(userUpAt) || userUpAt <= 0) return false;
+    const homeUpAt = Number(show("home.mount", "ActiveEnterTimestampMonotonic").trim());
+    // Mount finished after the user manager came up (or never within this boot): race hit.
+    return !Number.isFinite(homeUpAt) || homeUpAt <= 0 || homeUpAt > userUpAt;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Writes a manager-level drop-in ordering `user@.service` after `home.mount`, so the
+ * user manager cannot evaluate `default.target` before `/home` (and every unit under
+ * `~/.config/systemd/user`) is visible. Needs root on most distros; failures are
+ * non-fatal because buildUnit() also bakes After=/Wants=home.mount into the unit.
+ */
+export function ensureUserManagerHomeWaitDropIn(): void {
+  if (process.platform !== "linux") return;
+  const dir = "/etc/systemd/system/user@.service.d";
+  const file = join(dir, "ocx-wait-for-home.conf");
+  const contents = [
+    "# Managed by opencodex — orders user@.service after home.mount so the user manager",
+    "# never evaluates default.target before ~/.config/systemd/user is readable.",
+    "[Unit]",
+    "After=home.mount",
+    "Wants=home.mount",
+    "",
+  ].join("\n");
+  try {
+    if (existsSync(file) && readFileSync(file, "utf8") === contents) return;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(file, contents);
+    try { execSync("systemctl daemon-reload", { stdio: "pipe" }); } catch { /* best-effort (needs root bus) */ }
+  } catch {
+    // Drop-in needs root; the unit-level After=/Wants= plus the login ensure loop
+    // still cover the race, so absence of this file is not fatal.
+  }
+}
+
 export function installSystemd(): void {
   ensureUserBusEnv(); // reach the user bus over a bare SSH session (F9)
+  ensureUserManagerHomeWaitDropIn();
   const dir = unitDir();
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   recordOwnedConfigPath(getConfigDir(), serviceStatePath());
@@ -146,8 +205,34 @@ export function installSystemd(): void {
   writeServiceDefinitionFile(unitPath(), buildUnit(resolvedProxyEnv(), { launcher }), "utf8");
   sh("systemctl --user daemon-reload");
   sh(`systemctl --user enable ${TASK}`);
+  repairUserUnitWantsSymlink();
   sh(`systemctl --user restart ${TASK}`);
   writeServiceInstallState("scheduler", launcher);
+}
+
+/**
+ * `systemctl --user enable` writes the wants symlink through the user manager; when the
+ * manager was started during the home-mount race (or its bus hiccups) the symlink can be
+ * silently missing while enable reports success. A missing symlink means the unit is never
+ * queued at boot, so verify the file-level link and create it directly when absent.
+ */
+function repairUserUnitWantsSymlink(): void {
+  const wantsDir = join(unitDir(), "default.target.wants");
+  const link = join(wantsDir, `${TASK}.service`);
+  try {
+    const st = lstatSync(link);
+    // A dangling link (unit file removed then re-created elsewhere) must be replaced.
+    if (st.isSymbolicLink() && existsSync(link)) return;
+    try { unlinkSync(link); } catch { /* nothing to clear */ }
+  } catch {
+    // absent — fall through and create it
+  }
+  try {
+    mkdirSync(wantsDir, { recursive: true });
+    symlinkSync(unitPath(), link);
+  } catch {
+    // Best-effort: enable already ran; if this also failed the unit remains startable manually.
+  }
 }
 
 /**
