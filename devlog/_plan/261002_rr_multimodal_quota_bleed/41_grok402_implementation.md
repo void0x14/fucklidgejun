@@ -104,8 +104,18 @@ implementation, 18 of 18 pass, plus both layout guards.
 - `bun run structure:check`: 2 failures, and both already exist on `fca912f80`.
   `structure/providers/openai-tiers.md` is 616 lines (over the 600 budget), and it names a
   missing `src/codex/observed-model-denials.ts`. Neither comes from this change.
-- `bun run test:changed` cannot resolve a `dev` merge base in this clone. The equivalent
-  `bun scripts/test.ts --changed=HEAD` result is in the final report.
+- `bun run test:changed` cannot resolve a `dev` merge base in this clone.
+  `bun scripts/test.ts --changed=fca912f80` ran into the wrapper's 15-minute suite cap twice,
+  because other sessions were running suites on the same machine at the same time.
+- Fallback related set: 39 files covering `tests/providers/xai/`, Chat, passthrough, combo,
+  auth, xAI-server, 429 and quota, and the lab-boundary and layout guards. Result: 1224 pass,
+  1 skip, 9 fail.
+  - All 9 failures reproduce with `serve-options.ts` reverted to `fca912f80`. Same 9 tests,
+    633 pass / 9 fail in an isolated run of those 5 files.
+  - They are in `chat-completions-endpoint` (surrogate accounting), `openai-responses-passthrough`
+    (5 byte-accounting tests), `server-auth` (upstream reset 502), `server-combo-failover-e2e`
+    (connect-cancel 499) and `grok-orphan-adoption`.
+  - So they already fail on the base commit and do not come from this change.
 
 ### Not done (deliberately)
 
