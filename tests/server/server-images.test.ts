@@ -815,8 +815,7 @@ test("without a configured strategy the keyed image send still moves off a coole
       body: JSON.stringify({ prompt: "a cat", model: "gpt-image-2" }),
     });
     expect(response.status).toBe(200);
-    // An omitted strategy behaves like fill-first (devlog 261002_rr_multimodal_quota_bleed, R4):
-    // a healthy committed key is kept, a cooling one is replaced before the send.
+    // No strategy behaves like fill-first (devlog 261002 R4): a cooling committed key is replaced.
     expect(captured[0].headers.get("authorization")).toBe("Bearer sk-warm-key");
   } finally {
     await server.stop(true);
