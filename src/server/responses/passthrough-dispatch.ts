@@ -109,7 +109,13 @@ import { classifyTransportFailureKind, transportErrorCode } from "../../lib/upst
 import { recordCodexUpstreamOutcome } from "../../codex/routing";
 import { describeUpstreamConnectFailure } from "./upstream-error";
 import type { OpaqueBlobRecoveryGuard } from "./core-opaque-recovery";
-import { rateLimitRetryPolicyFor, rateLimitRetryDelayMs } from "../../providers/key-failover";
+import {
+  rateLimitRetryPolicyFor,
+  rateLimitRetryDelayMs,
+  hasKeyPoolFailover,
+  rotateProviderTransportOnKeyFailure,
+} from "../../providers/key-failover";
+import { classifyKeyScopedResponse, keyScopedRecoveryKind } from "../../providers/key-failure-class";
 import type { AttemptRecoveryKind } from "../../usage/log";
 import { resolveWireProtocolOverride } from "../adapter-resolve";
 import { refreshPoolForwardAuth, refreshNativeMainForwardAuth, withClaudeNativeSession } from "./core-auth";
@@ -789,6 +795,11 @@ export async function preparePassthroughExchange(
     const consoleGoUploadRetryGuard: { attempted: boolean } = { attempted: false };
     const rateLimitPolicy = rateLimitRetryPolicyFor(route.provider);
     let rateLimitRetries = 0;
+    // API-key pool rotations for this request (see the key-pool arm in the loop below): at most
+    // one per pool member, declared outside the loop so `continue passthroughRecovery` cannot
+    // re-arm it.
+    let keyPoolHops = 0;
+    const keyPoolHopCap = route.provider.apiKeyPool?.length ?? 0;
     const rebuildAndRefetch = async (
       recovery: AttemptRecoveryKind,
     ): Promise<Response | { failed: Response }> => {
@@ -1213,6 +1224,53 @@ export async function preparePassthroughExchange(
         );
       } catch (err) {
         return transportFailureResponse(err);
+      }
+    }
+
+    // Static API-key pool failover on the Responses passthrough wire. The translated-adapter
+    // loop has had 401/429 key rotation for a long time; this wire had none, so a
+    // Responses-shaped key-pool provider (DeepSeek's Responses preset, for one) relayed every
+    // key-scoped verdict -- 402 "Insufficient Balance" included -- straight to the client and
+    // every "continue" went back to the same dead key. Runs after the opt-in same-key 429 replay
+    // above, so "primary-first" setups keep their key on a rate-limit blip. Pre-stream only:
+    // nothing has been relayed yet. OAuth/forward providers never qualify
+    // (`hasKeyPoolFailover`), so the Codex pool and generic OAuth arms keep their ownership.
+    if (
+      !upstreamResponse.ok
+      && hasKeyPoolFailover(route.provider)
+      && keyPoolHops < keyPoolHopCap
+    ) {
+      const failure = await classifyKeyScopedResponse(upstreamResponse, upstream.signal);
+      if (failure) {
+        keyPoolHops += 1;
+        // The replay IS this hop's send; a refusal keeps the real upstream answer.
+        const hop = reserveCredentialHop(
+          "auth-recovery",
+          `${route.providerName}|${route.modelId}|key-pool`,
+          true,
+        );
+        const rotated = rotateProviderTransportOnKeyFailure(config, route.providerName, route.provider, failure, {
+          retryAfter: upstreamResponse.headers.get("retry-after"),
+          now: Date.now(),
+          attemptedKey: route.provider.apiKey,
+          promptCacheKey: parsed.options.promptCacheKey,
+        });
+        if (rotated && hop.allowed) {
+          route.provider = rotated;
+          bindRouteReasoningReplayScope({
+            parsed, providerName: route.providerName, provider: route.provider,
+            adapterName: transportState.adapter.name,
+          });
+          try { void upstreamResponse.body?.cancel().catch(() => {}); } catch { /* already closed */ }
+          sendBudgetState.pendingHopPermit = hop.permit;
+          const result = await rebuildAndRefetch(keyScopedRecoveryKind(failure));
+          sendBudgetState.pendingHopPermit = undefined;
+          if ("failed" in result) return result.failed;
+          upstreamResponse = result;
+          continue passthroughRecovery;
+        }
+        // No credential moved (or the budget refused the replay), so the reservation costs nothing.
+        hop.permit?.release();
       }
     }
 

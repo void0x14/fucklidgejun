@@ -20,8 +20,9 @@ import {
   transientRetryPolicyFor,
   rateLimitRetryDelayMs,
   hasKeyPoolFailover,
-  rotateProviderTransportOn429,
+  rotateProviderTransportOnKeyFailure,
 } from "../../providers/key-failover";
+import { classifyKeyScopedResponse, keyScopedRecoveryKind } from "../../providers/key-failure-class";
 import {
   fetchWithTransientRetry,
   fetchWithResetRetry,
@@ -138,6 +139,8 @@ export function createAdapterContinuations(
     let response: Response | undefined;
     // One-shot recovery label for the next top-of-loop continuation send after a failover rotation.
     let nextContinuationRecoveryKind: AttemptRecoveryKind | undefined = initialRecoveryKind;
+    // API-key pool rotations for this continuation; outside the loop so `continue` cannot re-arm it.
+    let keyPoolHops = 0;
     /**
      * Build and fetch one terminal-guard continuation. `recoveryKind` tags same-target and
      * failover sends (`empty-completion`, `rate-limit-429`, `key-429`,
@@ -302,8 +305,16 @@ export function createAdapterContinuations(
         }
       }
 
-      if (response.status === 429 && hasKeyPoolFailover(route.provider)) {
-        const rotated = rotateProviderTransportOn429(config, route.providerName, route.provider, {
+      // Key-scoped verdicts (429, 401, 402, billing/quota 400/403) move the continuation to the
+      // next healthy pool key. The continuation's own response has not been relayed yet, so the
+      // replay is lossless; bounded by one rotation per pool member for this continuation.
+      const keyFailure = !response.ok && hasKeyPoolFailover(route.provider)
+        && keyPoolHops < (route.provider.apiKeyPool?.length ?? 0)
+        ? await classifyKeyScopedResponse(response, upstream.signal)
+        : null;
+      if (keyFailure) {
+        keyPoolHops += 1;
+        const rotated = rotateProviderTransportOnKeyFailure(config, route.providerName, route.provider, keyFailure, {
           retryAfter: response.headers.get("retry-after"),
           now: Date.now(),
           attemptedKey: route.provider.apiKey,
@@ -331,7 +342,7 @@ export function createAdapterContinuations(
             provider: route.provider,
             adapterName: transportState.activeAdapter.name,
           });
-          nextContinuationRecoveryKind = "key-429";
+          nextContinuationRecoveryKind = keyScopedRecoveryKind(keyFailure);
           continue;
         }
       }

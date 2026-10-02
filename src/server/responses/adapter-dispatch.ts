@@ -26,7 +26,9 @@ import {
   rotateProviderTransportOn401,
   rateLimitRetryDelayMs,
   rotateProviderTransportOn429,
+  rotateProviderTransportOnKeyFailure,
 } from "../../providers/key-failover";
+import { classifyKeyScopedResponse, keyScopedRecoveryKind } from "../../providers/key-failure-class";
 import {
   fetchWithTransientRetry,
   fetchWithResetRetry,
@@ -360,6 +362,12 @@ export async function prepareAdapterExchange(
     // moments later; at most one byte-identical replay is allowed per request.
     const consoleGoUploadRetryGuard: { attempted: boolean } = { attempted: false };
     let oauth401ReplayAttempted = false;
+    // API-key pool rotations for this request, across every key arm below: at most one per pool
+    // member (the last one only records the final key's cooldown and finds nothing left), so the
+    // arms together can never walk the pool twice. Declared outside the loop for the same reason
+    // as the guards around it.
+    let keyPoolHops = 0;
+    const keyPoolHopCap = route.provider.apiKeyPool?.length ?? 0;
     // At most one reasoning-effort downgrade per request. This sits outside the recovery loop
     // below for the same reason the two guards above do: a guard declared inside it is reset by
     // every `continue recovery`, which would let one turn walk the whole ladder down.
@@ -570,7 +578,8 @@ export async function prepareAdapterExchange(
       // provider: one revoked or mistyped key says nothing about its siblings. OAuth providers
       // refresh above and never enter here — `hasKeyPoolFailover` rejects oauth/forward modes.
       // Runs after the OAuth replay so a refreshable token is never treated as a dead key.
-      while (upstreamResponse.status === 401 && hasKeyPoolFailover(route.provider)) {
+      while (upstreamResponse.status === 401 && hasKeyPoolFailover(route.provider) && keyPoolHops < keyPoolHopCap) {
+        keyPoolHops += 1;
         const rotated = rotateProviderTransportOn401(config, route.providerName, route.provider, {
           now: Date.now(),
           attemptedKey: route.provider.apiKey,
@@ -640,7 +649,8 @@ export async function prepareAdapterExchange(
       // Multi-key 429 failover: rotate to the next pool key (cooldown-aware) and retry the
       // SAME request once per remaining key. OAuth/forward providers and single-key pools
       // return null immediately, so this stays a no-op for them (src/providers/key-failover.ts).
-      while (upstreamResponse.status === 429 && hasKeyPoolFailover(route.provider)) {
+      while (upstreamResponse.status === 429 && hasKeyPoolFailover(route.provider) && keyPoolHops < keyPoolHopCap) {
+        keyPoolHops += 1;
         const rotated = rotateProviderTransportOn429(config, route.providerName, route.provider, {
           retryAfter: upstreamResponse.headers.get("retry-after"),
           now: Date.now(),
@@ -666,6 +676,56 @@ export async function prepareAdapterExchange(
         const result = await rebuildAndRefetch("key-429");
         if ("failed" in result) return result.failed;
         upstreamResponse = result;
+      }
+
+      // Billing/quota verdicts on a static key pool (402, or a 400/403 that names balance,
+      // quota, arrears or credit -- `classifyKeyScopedResponse`). These are about the key that
+      // was sent, so the next key serves the same request; content-policy, schema, context and
+      // image refusals are not classified and keep the original response. Pre-stream only, one
+      // credential hop per rotation through the shared request budget; a refused hop still
+      // records the cooldown so the NEXT request moves off the dead key, and the real upstream
+      // answer is returned.
+      if (
+        (upstreamResponse.status === 402 || upstreamResponse.status === 403 || upstreamResponse.status === 400)
+        && hasKeyPoolFailover(route.provider)
+        && keyPoolHops < keyPoolHopCap
+      ) {
+        const failure = await classifyKeyScopedResponse(upstreamResponse, upstream.signal);
+        if (failure === "balance" || failure === "quota") {
+          keyPoolHops += 1;
+          const hop = reserveCredentialHop(
+            "auth-recovery",
+            `${route.providerName}|${route.modelId}|adapter-recovery-key-pool`,
+          );
+          const rotated = rotateProviderTransportOnKeyFailure(config, route.providerName, route.provider, failure, {
+            now: Date.now(),
+            attemptedKey: route.provider.apiKey,
+            promptCacheKey: parsed.options.promptCacheKey,
+          });
+          if (rotated && hop.allowed) {
+            try { void upstreamResponse.body?.cancel().catch(() => {}); } catch { /* already consumed/closed */ }
+            route.provider = rotated;
+            invalidateSameTargetRequest();
+            transportState.activeAdapter = resolveSelectionAdapter(
+              resolveWireProtocolOverride(route.providerName, route.modelId, route.provider, inboundWire),
+              config.cacheRetention,
+            );
+            bindRouteReasoningReplayScope({
+              parsed,
+              providerName: route.providerName,
+              provider: route.provider,
+              adapterName: transportState.activeAdapter.name,
+            });
+            const result = await rebuildAndRefetch(keyScopedRecoveryKind(failure), () => { hop.permit?.use(); });
+            if ("failed" in result) {
+              hop.permit?.release();
+              return result.failed;
+            }
+            upstreamResponse = result;
+            continue recovery;
+          }
+          hop.permit?.release();
+        }
       }
 
       // Opt-in Anthropic OAuth account pool (#294): cool the failed account and retry

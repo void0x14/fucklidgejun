@@ -113,15 +113,28 @@ within their route; neither route falls through to the other. See
 
 ### Pre-dispatch API-key pool pick
 
-Key-auth routes with a configured `apiKeyPoolStrategy` and two or more pool entries pick a
-warm key before the first send (`selectProactiveApiKeyTransport` in
-`src/providers/key-failover.ts`). The pick is inert unless that strategy is set and the
-committed key is already cooling or missing from the pool: a healthy committed key, including
-a manual selection, is left alone and the common path returns null without a config write.
-`forgetApiKeyRotationCursor` drops the process-local round-robin cursor when the operator
-edits the pool, so a later pick cannot second-guess that choice.
+Key-auth routes with two or more pool entries pick a key before the first send
+(`selectProactiveApiKeyTransport` in `src/providers/key-failover.ts`).
 
-On the shared Responses path the assignment lands in `src/server/responses/core.ts`
+- `round-robin` advances a process-local cursor on every request and skips cooling keys. The
+  pick is request-local: the route carries a copy of the committed row with the picked key and an
+  `_apiKeyAttempt` stamp that names the picked entry at the row's current
+  `apiKeySelectionRevision`. Nothing shared is written, so concurrent requests each dispatch as
+  the key they were given, and the UI keeps showing the committed key.
+- `fill-first`, `quota` and an omitted strategy leave a healthy committed key alone, including a
+  manual selection. When the committed key is cooling or missing from the pool they commit the
+  first eligible key (`quota`: most headroom) so the request and every later "continue" avoid it.
+- With every key cooling the pick returns null and the request is sent on the committed key; the
+  upstream's answer reaches the client rather than a synthetic refusal.
+
+`forgetApiKeyRotationCursor` drops the cursor when the operator edits the pool. The dispatch
+gate `providerApiKeySelectionIsCurrent` (`src/providers/api-key-selection.ts`) accepts the
+committed key at the current revision and, for a `round-robin` provider, any other pool member at
+the current revision; a manual selection bumps the revision and so still wins over an in-flight
+pick, and removing or re-keying the picked entry invalidates it. `resolveCurrentProviderApiKeyTransport`
+keeps a still-valid pick when it rebuilds a stale transport.
+
+On the shared Responses path the assignment lands in `src/server/responses/request-transport.ts`
 immediately before `resolveProviderTransport`. `route.provider` is copied into
 `adapterProvider` on the next lines, and later `providerFetch` consumers (the HTTP send,
 the image bridge, web search) read that pinned object with no stale-selection re-read. A
@@ -132,15 +145,38 @@ eligible `openai-chat` requests to `src/server/chat-native.ts` and never through
 core, so that file repeats the same call before it binds the adapter. Native compact
 (`src/server/responses/compact.ts`) and the keyed Images relay (`src/server/images.ts`)
 do the same for the same reason. Request paths assign the Transport variant, not the bare
-`selectProactiveApiKey` snapshot: the snapshot is the persisted row, so it carries none of the
-backfills `routedProviderConfig` merges in at request time and none of the route's explicit
-runtime transport state. The load-bearing one is the credential -- a stored `\${VAR}` or
+`selectProactiveApiKey` row: the persisted branch answers with the persisted row, so it carries
+none of the backfills `routedProviderConfig` merges in at request time and none of the route's
+explicit runtime transport state. The load-bearing one is the credential -- a stored `\${VAR}` or
 keychain reference is resolved in `routedProviderConfig` and nowhere in the adapter, so a
-wholesale assignment sends the literal reference as the bearer token. `adapter` and `baseUrl`
-are not at risk on a stored row, because the config schema requires both.
+wholesale assignment sends the literal reference as the bearer token.
 
-Reactive 429 rotation (`rotateProviderTransportOn429`) remains the recovery path after a
-send has already earned a throttle.
+### API-key pool failover
+
+A key-scoped upstream verdict that arrives before any byte reaches the client replays the same
+request on the next healthy pool key, on every wire: the translated-adapter recovery loop
+(`src/server/responses/adapter-dispatch.ts`), native Chat (`src/server/chat-native.ts`), the
+Responses passthrough loop (`src/server/responses/passthrough-dispatch.ts`) and the
+terminal-guard continuation (`src/server/responses/adapter-continuation.ts`).
+`classifyKeyScopedResponse` (`src/providers/key-failure-class.ts`) decides what is key-scoped:
+`429` (rate), `401` (auth), `402` (balance), and a `400`/`403` only when its error code or message
+names exhausted balance, quota, arrears or credit. It reads a bounded clone, so the original body
+is still relayed when no rotation happens. Content-policy, schema, context-length and image
+refusals are never classified, and `5xx` stays with the same-key transient retry.
+
+`rotateProviderTransportOnKeyFailure` (and its `On429`/`On401` twins) cools the key the route
+actually sent, identified by its `_apiKeyAttempt` stamp: the `Retry-After` window or 60 s for a
+rate verdict, the 10-minute cap otherwise, never shortening a longer hold. The retry key is the
+committed key when it is healthy and was not the one that failed; otherwise the committed key
+moves to the next healthy entry and is persisted. Every call cools one more key, so the loop ends
+with every key cooling and the real upstream response; each request is additionally capped at one
+rotation per pool member, and the passthrough and adapter billing arms reserve a credential hop
+from the shared send budget (a refused hop still records the cooldown). Rotation logs
+`[key-failover]` lines with pool entry ids only, and each usage attempt records the serving
+`apiKeyEntryId` (never the key or its label). A combo whose target provider still has a healthy
+key treats a key-scoped failure as scope `none` (`hasHealthyApiKeySpare`, used in
+`src/server/responses/core-combo.ts`), so a single-target combo is not blackholed for its
+cooldown window. Mid-stream failures are never replayed.
 
 ### Routed service-tier capability
 

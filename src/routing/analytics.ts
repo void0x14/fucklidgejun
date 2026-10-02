@@ -118,6 +118,7 @@ const COOLDOWN_RECOVERY_KINDS = new Set([
   "rate-limit-429",
   "key-401",
   "key-429",
+  "key-quota",
   "oauth-401",
   "anthropic-oauth-429",
   "oauth-account-429",

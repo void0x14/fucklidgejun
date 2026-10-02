@@ -99,7 +99,8 @@ subscription that login already pays for, or bill a separate API account. The an
 
 A request uses exactly one of these, and opencodex does not fall back from one to the other. When an
 OAuth credential cannot be resolved the request fails with an authentication error instead of
-reaching for a stored key, and the key-pool failover that answers a 429 or a 401 is refused outright
+reaching for a stored key, and the key-pool failover that answers a key-scoped refusal (429, 401,
+402, or a billing/quota 400/403; see [`apiKeyPoolStrategy`](/reference/configuration/providers/)) is refused outright
 for OAuth and forward providers.
 
 Two exceptions are worth knowing because you can hit them:

@@ -37,9 +37,10 @@ import {
   selectProactiveApiKeyTransport,
   rateLimitRetryDelayMs,
   rateLimitRetryPolicyFor,
-  rotateProviderTransportOn429,
+  rotateProviderTransportOnKeyFailure,
   transientRetryPolicyFor,
 } from "../providers/key-failover";
+import { classifyKeyScopedResponse, keyScopedRecoveryKind } from "../providers/key-failure-class";
 import { fastPolicyForModel } from "../providers/service-tier";
 import { providerApiKeySelectionIsCurrent, resolveCurrentProviderApiKeyTransport } from "../providers/api-key-selection";
 import { enrichOpenCodeZenFreeTierMessage } from "../providers/opencode-zen-rate-limit";
@@ -299,7 +300,10 @@ export async function handleNativeChatCompletions(options: HandleNativeChatOptio
     : Number.POSITIVE_INFINITY;
   const transientSendAvailable = (): boolean => remainingTransientSends() > 0;
 
-  const send = async (request: AdapterRequest, recovery?: "rate-limit-429" | "key-429"): Promise<Response> => {
+  const send = async (
+    request: AdapterRequest,
+    recovery?: "rate-limit-429" | "key-401" | "key-429" | "key-quota",
+  ): Promise<Response> => {
     try {
       // #2643: opted-in key-auth openai-chat providers retry pre-stream transient statuses on
       // the native chat lane too; everyone else keeps reset-only semantics.
@@ -388,8 +392,15 @@ export async function handleNativeChatCompletions(options: HandleNativeChatOptio
       if (upstream.signal.aborted) throw upstream.signal.reason;
       response = await send(activeRequest, "rate-limit-429");
     }
-    while (response.status === 429 && hasKeyPoolFailover(activeProvider)) {
-      const rotated = rotateProviderTransportOn429(config, route.providerName, activeProvider, {
+    // Key-scoped verdicts (429 rate, 401 auth, 402 balance, billing/quota 400/403 -- see
+    // `classifyKeyScopedResponse`) move the same request to the next healthy pool key. One
+    // rotation per pool member at most: the last one only records the final key's cooldown.
+    const keyPoolHopCap = activeProvider.apiKeyPool?.length ?? 0;
+    for (let keyPoolHops = 0; keyPoolHops < keyPoolHopCap && hasKeyPoolFailover(activeProvider); keyPoolHops += 1) {
+      if (response.ok) break;
+      const failure = await classifyKeyScopedResponse(response, upstream.signal);
+      if (!failure) break;
+      const rotated = rotateProviderTransportOnKeyFailure(config, route.providerName, activeProvider, failure, {
         retryAfter: response.headers.get("retry-after"),
         now: Date.now(),
         attemptedKey: activeProvider.apiKey,
@@ -407,7 +418,7 @@ export async function handleNativeChatCompletions(options: HandleNativeChatOptio
       releaseRetainedRequest();
       activeRequest = buildActiveRequest();
       retainRequest(activeRequest);
-      response = await send(activeRequest, "key-429");
+      response = await send(activeRequest, keyScopedRecoveryKind(failure));
     }
   } catch (error) {
     releaseRetainedRequest();

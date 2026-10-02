@@ -27,6 +27,8 @@ import {
 } from "../../combos";
 import { formatErrorResponse } from "../../bridge";
 import { eligibleFailoverAccounts } from "../../oauth/generic-account-failover";
+import { hasHealthyApiKeySpare } from "../../providers/key-failover";
+import { classifyKeyScopedFailure } from "../../providers/key-failure-class";
 import {
   expandPreviousResponseInput,
   previousResponseScopeMismatch,
@@ -668,7 +670,12 @@ export async function executeComboResponses(
       failure.response.status,
       failure.classificationText,
       { code: failure.upstreamCode },
-    ) && eligibleFailoverAccounts(pick.target.provider, failureNow).length > 0;
+    ) && eligibleFailoverAccounts(pick.target.provider, failureNow).length > 0
+      // Static API-key pools are the same shape: the request path already cooled the key it
+      // sent, so a key-scoped verdict (429/401/402, billing/quota 400/403) on a pool that still
+      // has a healthy key must not blackhole a single-target combo for its cooldown window.
+      || (classifyKeyScopedFailure(failure.response.status, failure.classificationText, failure.upstreamCode) !== null
+        && hasHealthyApiKeySpare(config, pick.target.provider, failureNow));
     const nextPick = advanceComboAfterFailure(config, pick, {
       retryAfter: hasSpareAccount ? null : failure.retryAfter,
       resetAt: hasSpareAccount ? undefined : failure.resetAt,

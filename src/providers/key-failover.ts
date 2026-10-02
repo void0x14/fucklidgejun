@@ -1,14 +1,16 @@
 /**
- * Multi-key 429 failover for non-OpenAI providers.
+ * Multi-key failover for static API-key pools.
  *
- * When a provider's upstream returns 429, this module picks the next available key
- * from `apiKeyPool`, puts the exhausted key into cooldown (respecting Retry-After),
- * and returns a fresh provider config with the swapped key. If all keys are in
- * cooldown, returns null so the caller surfaces the 429 to the client.
+ * When a provider's upstream answers with a KEY-SCOPED verdict (429 rate window, 401 rejected
+ * key, 402 unpaid account, or a 400/403 that names billing/quota -- see `key-failure-class.ts`),
+ * this module puts the key that was actually sent into cooldown and returns a fresh provider
+ * config for the next healthy key in `apiKeyPool`. If every other key is cooling, it returns
+ * null so the caller surfaces the real upstream answer to the client.
  *
  * Modelled after src/codex/routing.ts cooldown logic but scoped to plain API-key pools.
  */
 import { commitProviderApiKeySelection } from "./api-key-selection";
+import type { KeyScopedFailureClass } from "./key-failure-class";
 import type { ProviderApiKeySelection } from "../types/provider";
 import { routedProviderConfig } from "../router";
 import type { OcxConfig, OcxProviderConfig, RateLimitRetryPolicy, TransientRetryPolicy } from "../types";
@@ -93,6 +95,45 @@ function isKeyInCooldown(providerName: string, keyId: string, now = Date.now()):
   return true;
 }
 
+/**
+ * How long a key stays out of rotation after a key-scoped verdict.
+ *
+ * A rate window resets on the upstream's own schedule, so it honours Retry-After (default 60s).
+ * Auth, balance and quota verdicts are about the credential itself and do not clear on a timer
+ * the upstream announces -- a revoked key, an empty balance, an exhausted free tier -- so they
+ * hold the key for the full cap instead of re-trying a dead key once a minute.
+ */
+function cooldownMsFor(
+  failure: KeyScopedFailureClass,
+  retryAfterHeader: string | null | undefined,
+  now: number,
+): number {
+  if (failure === "rate") return parseRetryAfterMs(retryAfterHeader, now) ?? DEFAULT_COOLDOWN_MS;
+  return MAX_COOLDOWN_MS;
+}
+
+/**
+ * Cool one pool entry. Never shortens a longer hold already in place (a 429 on a key that is
+ * already held for a balance verdict must not release it early). Logs the entry id only:
+ * labels are user-supplied free text and could carry secret material, and the key never.
+ */
+function coolKey(
+  providerName: string,
+  keyId: string,
+  failure: KeyScopedFailureClass,
+  retryAfterHeader: string | null | undefined,
+  now: number,
+): void {
+  const until = now + cooldownMsFor(failure, retryAfterHeader, now);
+  const existing = keyCooldowns.get(cooldownKey(providerName, keyId));
+  if (existing && existing.cooldownUntil >= until) return;
+  keyCooldowns.set(cooldownKey(providerName, keyId), { cooldownUntil: until });
+  sweepExpiredOnWrite(now);
+  console.warn(
+    `[key-failover] ${providerName}: ${failure} verdict on key ${keyId}; cooling for ${Math.ceil((until - now) / 1000)}s`,
+  );
+}
+
 // ---- public API ----
 
 /**
@@ -131,11 +172,11 @@ export function forgetApiKeyRotationCursor(providerName?: string): void {
  * Next healthy pool key after the round-robin cursor, or null when every key is cooling.
  *
  * The cursor is the single source of sequence truth: it advances on every distributed pick
- * AND on every committed move (`rotateKeyAfterFailure` and the persisted branch of
- * `selectProactiveApiKey` keep writing it), so 429 recovery, manual selection and
- * per-request distribution all advance the same sequence instead of forking it. Seeding
- * from the last pick -- not from the committed row -- is what makes back-to-back requests
- * land on different keys even when the persisted row does not move between them.
+ * AND on every proactive committed move (the persisted branch of `selectProactiveApiKey`
+ * writes it), so proactive recovery and per-request distribution advance the same sequence
+ * instead of forking it; failure recovery leaves it alone and relies on cooldowns instead.
+ * Seeding from the last pick -- not from the committed row -- is what makes back-to-back
+ * requests land on different keys even when the persisted row does not move between them.
  *
  * When the cursor is unknown (fresh boot, manual pool edit), anchor on the committed key so
  * the first distributed request goes to its successor instead of re-sending it.
@@ -163,32 +204,37 @@ function nextRoundRobinKey(
 /*
  * Per-request round-robin pick for the `round-robin` strategy.
  *
- * The picked key is written back onto the CALLER's live config object -- in memory only,
- * never to disk. That write is load-bearing, not cosmetic:
- * - `providerApiKeySelectionIsCurrent` (the dispatch gate in
- *   `request-transport.ts`) compares the route's key against the live config row. Without
- *   the write every distributed pick reads as stale and is rebuilt with the committed key,
- *   so distribution silently collapses back onto one key at send time.
- * - No `mutatePersistedConfig`, no `apiKeySelectionRevision` bump, no
- *   `publishAccountSelection` event: this runs on every request, so it stays off the
- *   mutation lock. The UI keeps showing the committed key until a real rotation (429/401
- *   recovery or manual selection) moves it.
- * - The `_apiKeyAttempt` stamp is captured from the committed row BEFORE the swap, so a
- *   429 on the distributed key still carries the committed selection identity into
- *   `rotateKeyAfterFailure`, which then rotates relative to the key that actually failed.
+ * Returns a request-local copy of the committed row with the picked key and a selection stamp
+ * that names the PICKED entry: `{ entryId: picked.id, reference: picked.key, revision }` at the
+ * committed row's current `apiKeySelectionRevision`. Nothing shared is written:
+ * - The live config row keeps the committed key. Writing the pick onto it (what this used to do)
+ *   made every concurrent request read the newest pick at its dispatch gate, so in-flight
+ *   requests collapsed onto one key.
+ * - The dispatch gate (`providerApiKeySelectionIsCurrent`) accepts a stamp that names any pool
+ *   member at the current revision for a round-robin provider, so the pick dispatches as itself.
+ *   A manual selection bumps the revision and still wins over an in-flight pick.
+ * - Because the stamp names the key that was actually sent, a failure on it cools THAT key in
+ *   `rotateKeyAfterFailure` instead of going `superseded` against the committed row.
+ * - No `mutatePersistedConfig`, no revision bump, no `publishAccountSelection` event: this runs
+ *   on every request, so it stays off the mutation lock and the UI keeps showing the committed
+ *   key until a real rotation or a manual selection moves it.
  *
- * The committed row is rebuilt through the registry seam (`routedProviderConfig`) so adapter,
- * base URL and static headers survive on the returned route.
+ * The caller rebuilds the route through the registry seam (`routedProviderConfig`, via
+ * `applyRotatedTransport`), which keeps this stamp and resolves an env/keychain reference.
  */
-function buildRoundRobinTransport(
-  config: OcxConfig,
-  providerName: string,
+function buildRoundRobinRow(
   provider: OcxProviderConfig,
   picked: ApiKeyPoolEntry,
 ): OcxProviderConfig {
-  const committedRoute = routedProviderConfig(providerName, provider);
-  provider.apiKey = picked.key;
-  return { ...committedRoute, apiKey: picked.key };
+  return {
+    ...provider,
+    apiKey: picked.key,
+    _apiKeyAttempt: {
+      entryId: picked.id,
+      reference: picked.key,
+      revision: provider.apiKeySelectionRevision,
+    },
+  };
 }
 
 /** The pool entry shape is inline on OcxProviderConfig; name it once rather than re-spelling it. */
@@ -249,14 +295,21 @@ function rankKeysByHeadroom(
  *   the committed key is healthy. This is true per-request load distribution: without it
  *   every request lands on the same committed key until a 429 forces a rotation, so a
  *   single upstream key absorbs the full request rate (and its per-key quota) while its
- *   siblings sit idle. The choice is in-memory only -- no config write, no revision bump --
- *   so the UI keeps showing the operator's committed key and 429 recovery still owns
- *   persistence. Cooldown-skipped keys are never picked.
- * - `quota` / `fill-first`: intentionally narrow. Never overrides a healthy key: if the
- *   committed `apiKey` is not in cooldown it returns null, so an operator's manual selection
- *   stands and no config write happens. Only acts when the committed key is known-cooled (or
- *   missing from the pool), which is exactly the case where the first request would
- *   otherwise be spent earning a 429 the runtime could already predict.
+ *   siblings sit idle. The choice is request-local -- no config write, no revision bump, no
+ *   live-row mutation -- so the UI keeps showing the operator's committed key and failure
+ *   recovery still owns persistence. Cooldown-skipped keys are never picked.
+ * - `quota` / `fill-first` / no strategy: intentionally narrow. Never overrides a healthy key:
+ *   if the committed `apiKey` is not in cooldown it returns null, so an operator's manual
+ *   selection stands and no config write happens. Only acts when the committed key is
+ *   known-cooled (or missing from the pool), which is exactly the case where the request would
+ *   otherwise be spent earning a refusal the runtime could already predict. A pool with no
+ *   strategy behaves like `fill-first` here: without it a key that failed with a verdict the
+ *   in-request failover could not move away from stayed committed, and every "continue" was
+ *   sent to the same dead key.
+ *
+ * When every key is cooling this returns null and the request dispatches on the committed key:
+ * the upstream's real answer is better than a synthetic local refusal, and a cooldown is a
+ * prediction, not a fact.
  *
  * Returning null is the common path for the non-round-robin strategies, so the
  * persisted-selection transaction is not on the per-request hot path.
@@ -277,7 +330,6 @@ export function selectProactiveApiKey(
   const provider = config.providers?.[providerName];
   if (!provider) return null;
   const strategy = provider.apiKeyPoolStrategy;
-  if (!strategy) return null;
   if (!hasKeyPoolFailover(provider)) return null;
   const pool = provider.apiKeyPool ?? [];
 
@@ -290,8 +342,10 @@ export function selectProactiveApiKey(
   if (strategy === "round-robin" && activeHealthy) {
     const rotated = nextRoundRobinKey(providerName, pool, provider.apiKey, now);
     // No healthy alternative (single eligible key, or everything else cooling): stay put.
-    if (!rotated || rotated.key === provider.apiKey) return null;
-    return buildRoundRobinTransport(config, providerName, provider, rotated);
+    if (!rotated) return null;
+    // The committed key's own turn is returned too, stamped exactly as the committed row would
+    // be, so every request in the cycle carries a stamp naming the key it sends.
+    return buildRoundRobinRow(provider, rotated);
   }
 
   // A healthy committed key wins, whether the operator chose it or a previous rotation did.
@@ -428,21 +482,35 @@ export function rateLimitRetryDelayMs(
 }
 
 /**
- * Record a 429 for the current key and attempt to switch to the next available one.
+ * Record a key-scoped failure for the key that was actually sent and pick the key the SAME
+ * request should retry on.
  *
- * @returns A new OcxProviderConfig with the swapped key (and mutated config on disk),
- *          or `null` when no alternative key is available (all in cooldown or pool < 2).
+ * - The failed key is the attempt's own selection stamp (`attemptedSelection`, which a
+ *   round-robin pick stamps with the entry it picked), else `attemptedKey`, else the committed
+ *   key. That key is cooled -- `failure` decides for how long -- whenever the persisted row
+ *   could be read, including when a newer manual selection superseded this attempt, unless that
+ *   newer selection deliberately points at the very same key again.
+ * - The retry key is the committed key when it is healthy and is not the one that failed
+ *   (a round-robin pick failed while the committed key is fine: no persisted move). Otherwise
+ *   the committed key is moved to the next healthy pool entry after the failed one and
+ *   persisted, so the NEXT request ("continue") lands on a healthy key too.
+ *
+ * @returns A new OcxProviderConfig carrying the retry key, or `null` when no other key is
+ *          available (every other key cooling, pool < 2, or persistence unavailable). Callers
+ *          then return the real upstream answer: there is no synthetic refusal and no loop,
+ *          because every call cools one more key.
  *
  * The returned object is a snapshot of the PERSISTED config — it carries none of the
  * registry backfills `routedProviderConfig` merges in at request time. Request paths must
- * not assign it to an active route wholesale; use `rotateProviderTransportOn429`, which
- * rebuilds from this committed row, reapplies registry metadata, and retains only explicit
- * runtime transport state (`fetch` and generated OpenCode session affinity).
+ * not assign it to an active route wholesale; use `rotateProviderTransportOnKeyFailure` (or
+ * its 429/401 twins), which rebuild from this committed row, reapply registry metadata, and
+ * retain only explicit runtime transport state (`fetch` and generated OpenCode session
+ * affinity).
  */
 function rotateKeyAfterFailure(
   config: OcxConfig,
   providerName: string,
-  failureStatus: 401 | 429,
+  failure: KeyScopedFailureClass,
   retryAfterHeader: string | null | undefined,
   now = Date.now(),
   attemptedKey?: string,
@@ -453,8 +521,12 @@ function rotateKeyAfterFailure(
   if (provider.authMode === "oauth" || provider.authMode === "forward") return null;
 
   const failedKey = attemptedSelection?.reference ?? attemptedKey ?? provider.apiKey;
+  const findFailed = (pool: readonly ApiKeyPoolEntry[]): ApiKeyPoolEntry | undefined =>
+    attemptedSelection?.entryId
+      ? pool.find(entry => entry.id === attemptedSelection.entryId && entry.key === failedKey)
+      : pool.find(entry => entry.key === failedKey);
   type Rotation =
-    | { failedId?: string; candidateId?: string }
+    | { failedId?: string; retryId: string; moved: boolean }
     | { exhaustedCount: number; failedId?: string };
   const outcome = commitProviderApiKeySelection<Rotation | null>(config, providerName, freshProvider => {
     const pool = freshProvider.apiKeyPool;
@@ -462,16 +534,16 @@ function rotateKeyAfterFailure(
 
     // The callback can be rerun after rebasing, so identify the failed key here but
     // defer the in-memory cooldown side effect until persistence has succeeded.
-    const failedEntry = attemptedSelection?.entryId
-      ? pool.find(entry => entry.id === attemptedSelection.entryId && entry.key === failedKey)
-      : pool.find(entry => entry.key === failedKey);
+    const failedEntry = findFailed(pool);
+    const usable = (entry: ApiKeyPoolEntry): boolean =>
+      entry.key !== failedKey && !isKeyInCooldown(providerName, entry.id, now);
 
     if (freshProvider.apiKey !== failedKey) {
       const activeEntry = pool.find(entry => entry.key === freshProvider.apiKey);
-      if (activeEntry && !isKeyInCooldown(providerName, activeEntry.id, now)) {
+      if (activeEntry && usable(activeEntry)) {
         return {
           changed: false,
-          value: { failedId: failedEntry?.id },
+          value: { failedId: failedEntry?.id, retryId: activeEntry.id, moved: false },
         };
       }
     }
@@ -480,14 +552,11 @@ function rotateKeyAfterFailure(
     const candidateCount = failedEntry ? pool.length - 1 : pool.length;
     for (let offset = 1; offset <= candidateCount; offset += 1) {
       const candidate = pool[(currentIndex + offset) % pool.length]!;
-      if (isKeyInCooldown(providerName, candidate.id, now)) continue;
+      if (!usable(candidate)) continue;
       freshProvider.apiKey = candidate.key;
       return {
         changed: true,
-        value: {
-          failedId: failedEntry?.id,
-          candidateId: candidate.id,
-        },
+        value: { failedId: failedEntry?.id, retryId: candidate.id, moved: true },
       };
     }
     return { changed: false, value: { exhaustedCount: pool.length, failedId: failedEntry?.id } };
@@ -496,32 +565,30 @@ function rotateKeyAfterFailure(
   if (outcome.status === "superseded") {
     // A newer manual selection (including A→B→A) owns subsequent dispatch. Reusing the
     // same failed key here would loop forever; preserve its original failure instead.
-    return outcome.provider.apiKey !== failedKey ? structuredClone(outcome.provider) : null;
+    // The failed key is still cooled -- it really did fail -- unless the operator's newer
+    // selection points at it again, in which case that explicit choice is not second-guessed.
+    if (outcome.provider.apiKey === failedKey) return null;
+    const failedEntry = findFailed(outcome.provider.apiKeyPool ?? []);
+    if (failedEntry) coolKey(providerName, failedEntry.id, failure, retryAfterHeader, now);
+    return structuredClone(outcome.provider);
   }
   if (outcome.value === null) return null;
   if (outcome.value.failedId) {
-    // A 401 is a verdict about the credential itself, not a timing signal: the key is rejected
-    // until an operator replaces it, and upstreams send no Retry-After for it. Hold it for the
-    // full cap instead of the 429 default so a dead key is not re-tried once a minute.
-    const cooldownMs = failureStatus === 401
-      ? MAX_COOLDOWN_MS
-      : parseRetryAfterMs(retryAfterHeader, now) ?? DEFAULT_COOLDOWN_MS;
-    keyCooldowns.set(cooldownKey(providerName, outcome.value.failedId), { cooldownUntil: now + cooldownMs });
-    sweepExpiredOnWrite(now);
+    coolKey(providerName, outcome.value.failedId, failure, retryAfterHeader, now);
   }
   if ("exhaustedCount" in outcome.value) {
-    console.warn(`[key-failover] ${providerName}: all ${outcome.value.exhaustedCount} keys in cooldown after ${failureStatus}; returning the upstream status to the client`);
+    console.warn(`[key-failover] ${providerName}: all ${outcome.value.exhaustedCount} keys in cooldown after a ${failure} verdict; returning the upstream status to the client`);
     return null;
   }
 
   const committed = structuredClone(outcome.provider);
   config.providers[providerName] = committed;
-  if (outcome.value.candidateId) {
-    console.warn(
-      // Log ids only — labels are user-supplied free text and could carry secret material.
-      `[key-failover] ${providerName}: ${failureStatus} on key ${outcome.value.failedId ?? "?"}; rotating to key ${outcome.value.candidateId}`,
-    );
-  }
+  console.warn(
+    // Log ids only — labels are user-supplied free text and could carry secret material.
+    outcome.value.moved
+      ? `[key-failover] ${providerName}: ${failure} verdict on key ${outcome.value.failedId ?? "?"}; rotating to key ${outcome.value.retryId}`
+      : `[key-failover] ${providerName}: ${failure} verdict on key ${outcome.value.failedId ?? "?"}; retrying on committed key ${outcome.value.retryId}`,
+  );
   return structuredClone(committed);
 }
 
@@ -533,7 +600,7 @@ export function rotateKeyOn429(
   attemptedKey?: string,
   attemptedSelection?: ProviderApiKeySelection,
 ): OcxProviderConfig | null {
-  return rotateKeyAfterFailure(config, providerName, 429, retryAfterHeader, now, attemptedKey, attemptedSelection);
+  return rotateKeyAfterFailure(config, providerName, "rate", retryAfterHeader, now, attemptedKey, attemptedSelection);
 }
 
 /**
@@ -551,7 +618,7 @@ export function rotateKeyOn401(
   attemptedKey?: string,
   attemptedSelection?: ProviderApiKeySelection,
 ): OcxProviderConfig | null {
-  return rotateKeyAfterFailure(config, providerName, 401, null, now, attemptedKey, attemptedSelection);
+  return rotateKeyAfterFailure(config, providerName, "auth", null, now, attemptedKey, attemptedSelection);
 }
 
 export function sweepExpiredApiKeyCooldowns(now = Date.now()): number {
@@ -642,6 +709,51 @@ export function clearKeyCooldowns(providerName?: string): void {
   for (const key of keyCooldowns.keys()) {
     if (key.startsWith(prefix)) keyCooldowns.delete(key);
   }
+}
+
+/**
+ * Any-class counterpart of `rotateProviderTransportOn429`: cool the key the route actually sent
+ * for a key-scoped verdict of class `failure` and rebuild the route on the retry key.
+ *
+ * Every wire's pre-stream recovery loop (translated adapters, native Chat, Responses
+ * passthrough, the terminal-guard continuation) calls this with the class from
+ * `classifyKeyScopedResponse`, so a 402 or a billing 403 moves to the next key exactly the way a
+ * 429 does. Callers that cannot afford the replay (request budget spent) may still call it for
+ * its bookkeeping and drop the result: the cooldown and the persisted move are what keep the
+ * NEXT request off the dead key.
+ */
+export function rotateProviderTransportOnKeyFailure(
+  config: OcxConfig,
+  providerName: string,
+  routedProvider: OcxProviderTransport,
+  failure: KeyScopedFailureClass,
+  options: RotateProviderTransportOptions = {},
+): OcxProviderTransport | null {
+  const rotated = rotateKeyAfterFailure(
+    config,
+    providerName,
+    failure,
+    options.retryAfter,
+    options.now,
+    options.attemptedKey,
+    options.attemptedSelection ?? routedProvider._apiKeyAttempt,
+  );
+  if (!rotated) return null;
+  return applyRotatedTransport(providerName, routedProvider, rotated, options.promptCacheKey);
+}
+
+/**
+ * True when the provider is a static key pool with at least one key outside its cooldown.
+ *
+ * The combo layer reads this after a key-scoped failure: the request path has already cooled
+ * the key it sent and moved the committed selection, so a pool with a healthy key left is still
+ * a working target and must not be blackholed for the combo's cooldown window. Mirrors the
+ * OAuth side's `eligibleFailoverAccounts(...).length > 0`.
+ */
+export function hasHealthyApiKeySpare(config: OcxConfig, providerName: string, now = Date.now()): boolean {
+  const provider = config.providers?.[providerName];
+  if (!provider || provider.disabled || !hasKeyPoolFailover(provider)) return false;
+  return (provider.apiKeyPool ?? []).some(entry => !isKeyInCooldown(providerName, entry.id, now));
 }
 
 /** Visible-for-testing: get the cooldown-until timestamp for a key. */
