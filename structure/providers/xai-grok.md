@@ -60,6 +60,35 @@ malformed, gapped, oversized, contradictory, failed, or incomplete streams stay 
 
 > Decision record: [ADR-0059](../decisions/ADR-0059-xai-grok-hardening-official-grok-build-contract.md)
 
+### Grok Build client: foreign HTTP 402
+
+Grok Build shows its own xAI billing upsell ("You hit your weekly limit", "Purchase credits") for
+any HTTP 402, any error text containing `status 402`, and a 403 whose text contains
+`run out of credits`, whatever provider answered. For a request carrying the Grok marker
+(`x-opencodex-grok: 1`, so `logCtx.surface === "grok"`), `src/server/grok-foreign-billing.ts`
+turns a non-SSE client-bound 402 from a provider that is positively identified and is not xAI into
+HTTP 400 with `{"error":{"type":"insufficient_quota","code":"insufficient_quota","message":…}}`.
+The message names the provider (its registry label, else the configured name), carries the
+redacted upstream message bounded to 500 characters (a generic text when the body is not JSON),
+says that the 402 is that provider's account balance and not a Grok limit, and has every trigger
+phrase rewritten out. No `Retry-After` is sent. Grok Build retries 429 and 5xx up to 15 times and
+never retries 400. The body read is capped at 64 KiB.
+
+- **Where:** `src/server/index/serve-options.ts` applies it at the outermost delivery boundary of
+  `/v1/responses`, after `responseWithDeferredRequestLog`, and around the whole
+  `/v1/chat/completions` handler. Usage logs, attempt records, cooldowns, health, key failover and
+  combo accounting therefore all keep the real 402. `/v1/messages` is not covered: Grok Build is
+  configured only with the `responses` or `chat_completions` backend, and that route never sets the
+  Grok surface.
+- **Provider identity:** the provider comes from the attempt records the route wrote, never from
+  the model name. That is the last attempt that finished with 402 (the relayed child of a combo),
+  else the active or last attempt. A `grok-oauth` or `xai-api-key` credential source, the `xai`
+  provider id, or a configured base URL on an `x.ai` or `grok.com` host counts as xAI, and that
+  402 is relayed unchanged so Grok's real billing flow keeps working. A provider name that is
+  not in the config is left unchanged.
+- **Unchanged:** requests without the marker, every status other than 402 (including 403), and
+  streamed 200 responses are the same `Response` object the route produced.
+
 ### Grok Reset Coupons (Billing API Parity)
 
 - **Upstream RPCs:** `prod_mc_billing.ConsumerUiSvc/GetRemainingResets` (inspection) and `prod_mc_billing.ConsumerUiSvc/RedeemReset` (redemption).

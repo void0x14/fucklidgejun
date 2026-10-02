@@ -54,6 +54,10 @@ Shared parsing and streaming follow the [request-copy](../transports/byte-accoun
 
 ## Chat Completions inbound native path
 
+A Grok Build caller (`x-opencodex-grok: 1`) whose non-xAI provider answers 402 receives a typed
+400 from the client-delivery boundary instead; the
+[foreign HTTP 402 contract](../providers/xai-grok.md#grok-build-client-foreign-http-402) owns it.
+
 `POST /v1/chat/completions` sends eligible `openai-chat` routes directly to the provider's Chat
 Completions endpoint. Route selection reads the raw Chat body and the native request keeps that body
 as its wire source; a Responses projection is constructed only after the native route is declined

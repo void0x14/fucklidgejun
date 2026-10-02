@@ -578,6 +578,7 @@
   "grok-attribution.test.ts": "providers/xai",
   "grok-config-inject.test.ts": "providers/xai",
   "grok-effort-inject.test.ts": "providers/xai",
+  "grok-foreign-402.test.ts": "providers/xai",
   "grok-lifecycle.test.ts": "providers/xai",
   "grok-management-api.test.ts": "providers/xai",
   "grok-models-effort-list.test.ts": "providers/xai",

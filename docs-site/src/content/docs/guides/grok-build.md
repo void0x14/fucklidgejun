@@ -174,3 +174,10 @@ the id `grok-4.5`. Generated aliases avoid dots entirely for this reason.
   document on every reload.
 - **Catalog updates:** the fenced block reflects the catalog at injection time. After
   adding providers or models, run `ocx ensure` (or restart the proxy) to refresh it.
+- **Provider balance errors (HTTP 402):** Grok Build shows its own "You hit your weekly limit" /
+  "Purchase credits" prompt for any HTTP 402, whichever provider answered. When a non-xAI provider
+  behind opencodex runs out of balance (for example DeepSeek "Insufficient Balance"), opencodex
+  returns HTTP 400 `insufficient_quota` to Grok Build instead. The message names the provider and
+  says the 402 is that provider's account balance, not a Grok limit: top up that provider or switch
+  models. A 402 from xAI itself is passed through unchanged, and opencodex usage logs still record
+  the original 402.

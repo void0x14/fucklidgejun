@@ -167,3 +167,11 @@ Placez entre guillemets tout alias contenant un point : `[model.grok-4.5]` sans 
   Grok observe un document complet à chaque rechargement.
 - **Mises à jour du catalogue :** le bloc délimité reflète le catalogue au moment de l’injection. Après
   l’ajout de fournisseurs ou de modèles, exécutez `ocx ensure` (ou redémarrez le proxy) pour l’actualiser.
+- **Erreurs de solde du fournisseur (HTTP 402) :** Grok Build affiche sa propre invite
+  « You hit your weekly limit » / « Purchase credits » pour tout HTTP 402, quel que soit le
+  fournisseur qui a répondu. Lorsqu'un fournisseur autre que xAI derrière opencodex n'a plus de
+  solde (par exemple DeepSeek « Insufficient Balance »), opencodex renvoie à la place un HTTP 400
+  `insufficient_quota` à Grok Build. Le message nomme le fournisseur et précise que le 402 concerne
+  le solde du compte de ce fournisseur, pas une limite Grok : rechargez ce fournisseur ou changez de
+  modèle. Un 402 venant de xAI lui-même est transmis sans modification, et les journaux d'usage
+  d'opencodex enregistrent toujours le 402 d'origine.
