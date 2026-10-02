@@ -17,7 +17,10 @@ import {
   rotateKeyOn401,
   rotateProviderTransportOn429,
   rotateProviderTransportOn401,
+  rotateProviderTransportOnKeyFailure,
+  hasHealthyApiKeySpare,
 } from "../../src/providers/key-failover";
+import { providerApiKeySelectionIsCurrent, resolveCurrentProviderApiKeyTransport } from "../../src/providers/api-key-selection";
 import {
   forgetApiKeyRotationCursor,
   selectProactiveApiKey,
@@ -107,7 +110,11 @@ describe("rotateKeyOn429", () => {
       expect(rotateProviderTransportOn429(config, "p", routed, { attemptedKey: routed.apiKey })?.apiKey)
         .toBe("key-beta-444555666777");
       expect(events).toEqual(["key-beta-444555666777"]);
+      // The superseded attempt above still cooled alpha (it really did fail). The management
+      // route clears cooldowns on every manual selection, so mirror it: what this test pins is
+      // that the stale attempt does not RE-cool the key the operator just chose again.
       expect(setActiveProviderApiKey(config, "p", "k1")).toBe(true);
+      clearKeyCooldowns("p");
       expect(rotateProviderTransportOn429(config, "p", routed, { attemptedKey: routed.apiKey })).toBeNull();
       expect(loadConfig().providers.p.apiKey).toBe("key-alpha-000111222333");
       expect(getKeyCooldownUntil("p", "k1")).toBeNull();
@@ -694,5 +701,139 @@ describe("rotateKeyOn401", () => {
       }
     });
 
+  });
+});
+
+/**
+ * Root causes R1-R5 from devlog/_plan/261002_rr_multimodal_quota_bleed/20_round_robin_findings.md,
+ * reproduced as the scratch reproduction there ran them: pool alpha/beta/gamma, round-robin.
+ */
+describe("key pool root causes (261002)", () => {
+  const now = 3_000_000;
+
+  function poolConfig(strategy: OcxProviderConfig["apiKeyPoolStrategy"] | "none" = "round-robin"): OcxConfig {
+    const config = makeConfig({
+      apiKey: "key-alpha-000111222333",
+      apiKeyPool: pool3(),
+      ...(strategy && strategy !== "none" ? { apiKeyPoolStrategy: strategy } : {}),
+    });
+    forgetApiKeyRotationCursor("p");
+    return config;
+  }
+
+  test("R3: the RR route is stamped with the entry it actually picked and passes the dispatch gate", () => {
+    const config = poolConfig();
+    const routed = routedProviderConfig("p", config.providers.p!);
+    const picked = selectProactiveApiKeyTransport(config, "p", routed, undefined, now);
+    expect(picked?.apiKey).toBe("key-beta-444555666777");
+    // Before the fix the stamp still named k1 (the committed key) and the gate read stale.
+    expect(picked?._apiKeyAttempt?.entryId).toBe("k2");
+    expect(providerApiKeySelectionIsCurrent(config, "p", picked!)).toBe(true);
+    // The shared live row is no longer mutated per request.
+    expect(config.providers.p!.apiKey).toBe("key-alpha-000111222333");
+    expect(loadConfig().providers.p!.apiKey).toBe("key-alpha-000111222333");
+  });
+
+  test("R3: a failure on a distributed key cools THAT key instead of going superseded", () => {
+    const config = poolConfig();
+    const routed = routedProviderConfig("p", config.providers.p!);
+    const picked = selectProactiveApiKeyTransport(config, "p", routed, undefined, now)!;
+    expect(picked.apiKey).toBe("key-beta-444555666777");
+    const retry = rotateProviderTransportOn429(config, "p", picked, { now, attemptedKey: picked.apiKey });
+    expect(retry).not.toBeNull();
+    expect(retry!.apiKey).not.toBe("key-beta-444555666777");
+    // The scratch reproduction read null here: the failed key was never cooled.
+    expect(getKeyCooldownUntil("p", "k2", now)).toBe(now + 60_000);
+    // ...so the cursor no longer feeds the dead key back on its next turn.
+    const seen = [1, 2, 3, 4].map(() => selectProactiveApiKey(config, "p", now)?.apiKey ?? config.providers.p!.apiKey);
+    expect(seen).not.toContain("key-beta-444555666777");
+  });
+
+  test("R3: two in-flight RR picks keep their own keys (no collapse onto the newest pick)", () => {
+    const config = poolConfig();
+    const routed = routedProviderConfig("p", config.providers.p!);
+    const first = selectProactiveApiKeyTransport(config, "p", routed, undefined, now)!;
+    const second = selectProactiveApiKeyTransport(config, "p", routed, undefined, now)!;
+    expect(first.apiKey).toBe("key-beta-444555666777");
+    expect(second.apiKey).toBe("key-gamma-888999000111");
+    // Both still dispatch as themselves; before the fix both resolved to gamma.
+    expect(providerApiKeySelectionIsCurrent(config, "p", first)).toBe(true);
+    expect(providerApiKeySelectionIsCurrent(config, "p", second)).toBe(true);
+    expect(resolveCurrentProviderApiKeyTransport(config, "p", first)?.apiKey).toBe("key-beta-444555666777");
+    expect(resolveCurrentProviderApiKeyTransport(config, "p", second)?.apiKey).toBe("key-gamma-888999000111");
+  });
+
+  test("R3: a manual selection after an RR pick still wins at dispatch", () => {
+    const config = poolConfig();
+    const routed = routedProviderConfig("p", config.providers.p!);
+    const picked = selectProactiveApiKeyTransport(config, "p", routed, undefined, now)!;
+    expect(picked.apiKey).toBe("key-beta-444555666777");
+    expect(setActiveProviderApiKey(config, "p", "k3")).toBe(true);
+    expect(providerApiKeySelectionIsCurrent(config, "p", picked)).toBe(false);
+    expect(resolveCurrentProviderApiKeyTransport(config, "p", picked)?.apiKey).toBe("key-gamma-888999000111");
+  });
+
+  test("R3: removing the picked entry invalidates the in-flight route", () => {
+    const config = poolConfig();
+    const routed = routedProviderConfig("p", config.providers.p!);
+    const picked = selectProactiveApiKeyTransport(config, "p", routed, undefined, now)!;
+    config.providers.p!.apiKeyPool = config.providers.p!.apiKeyPool!.filter(entry => entry.id !== "k2");
+    expect(providerApiKeySelectionIsCurrent(config, "p", picked)).toBe(false);
+    expect(resolveCurrentProviderApiKeyTransport(config, "p", picked)?.apiKey).toBe("key-alpha-000111222333");
+  });
+
+  test("R1: balance/quota verdicts rotate, cool for the full cap, and persist the move", () => {
+    const config = poolConfig("none");
+    const routed = routedProviderConfig("p", config.providers.p!);
+    const retry = rotateProviderTransportOnKeyFailure(config, "p", routed, "balance", { now });
+    expect(retry?.apiKey).toBe("key-beta-444555666777");
+    expect(getKeyCooldownUntil("p", "k1", now)).toBe(now + 10 * 60_000);
+    expect(loadConfig().providers.p!.apiKey).toBe("key-beta-444555666777");
+    const quota = rotateProviderTransportOnKeyFailure(config, "p", retry!, "quota", { now });
+    expect(quota?.apiKey).toBe("key-gamma-888999000111");
+    expect(getKeyCooldownUntil("p", "k2", now)).toBe(now + 10 * 60_000);
+    // Every key spent: no synthetic answer and no loop -- the caller returns the upstream error.
+    expect(rotateProviderTransportOnKeyFailure(config, "p", quota!, "quota", { now })).toBeNull();
+    expect(getKeyCooldownUntil("p", "k3", now)).toBe(now + 10 * 60_000);
+  });
+
+  test("R4: a pool with no strategy moves off a cooling committed key on the next request", () => {
+    const config = poolConfig("none");
+    rotateKeyOn429(config, "p", null, now);
+    setActiveProviderApiKey(config, "p", "k1");
+    const picked = selectProactiveApiKey(config, "p", now);
+    expect(picked?.apiKey).toBe("key-beta-444555666777");
+    expect(loadConfig().providers.p!.apiKey).toBe("key-beta-444555666777");
+  });
+
+  test("R4: a pool with no strategy leaves a healthy committed key alone", () => {
+    const config = poolConfig("none");
+    expect(selectProactiveApiKey(config, "p", now)).toBeNull();
+  });
+
+  test("all keys cooling: the pick stays put so dispatch still happens on the committed key", () => {
+    for (const strategy of ["none", "fill-first", "round-robin"] as const) {
+      clearKeyCooldowns();
+      const config = poolConfig(strategy);
+      const routed = routedProviderConfig("p", config.providers.p!);
+      rotateProviderTransportOnKeyFailure(config, "p", routed, "balance", { now });
+      rotateKeyOn429(config, "p", null, now);
+      rotateKeyOn429(config, "p", null, now);
+      expect(getKeyCooldownUntil("p", "k1", now)).not.toBeNull();
+      expect(getKeyCooldownUntil("p", "k2", now)).not.toBeNull();
+      expect(getKeyCooldownUntil("p", "k3", now)).not.toBeNull();
+      expect(selectProactiveApiKey(config, "p", now)).toBeNull();
+      expect(hasHealthyApiKeySpare(config, "p", now)).toBe(false);
+    }
+  });
+
+  test("R5: a key pool with a healthy key left is a spare for the combo exemption", () => {
+    const config = poolConfig("none");
+    expect(hasHealthyApiKeySpare(config, "p", now)).toBe(true);
+    rotateProviderTransportOnKeyFailure(config, "p", routedProviderConfig("p", config.providers.p!), "balance", { now });
+    expect(hasHealthyApiKeySpare(config, "p", now)).toBe(true);
+    const single = makeConfig({ apiKey: "key-alpha-000111222333", apiKeyPool: [pool3()![0]!] });
+    expect(hasHealthyApiKeySpare(single, "p", now)).toBe(false);
+    expect(hasHealthyApiKeySpare(single, "missing", now)).toBe(false);
   });
 });

@@ -10,19 +10,49 @@ import { captureProviderApiKeySelection } from "./api-key-selection-capture";
 
 export { captureProviderApiKeySelection } from "./api-key-selection-capture";
 
-function matchesSelection(provider: OcxProviderConfig, expected: ProviderApiKeySelection): boolean {
+/**
+ * Whether a selection stamp still describes a key this provider row would send.
+ *
+ * The committed key at the same revision always matches. A round-robin provider additionally
+ * accepts any OTHER pool member at the same revision: its per-request pick is stamped with the
+ * entry it picked (see `buildRoundRobinRow` in key-failover.ts) and is never written onto the
+ * shared row, so concurrent requests each dispatch as the key they were given. Every operator
+ * selection bumps `apiKeySelectionRevision`, so a manual choice still invalidates an in-flight
+ * pick; removing or re-keying the picked entry invalidates it too. Non-round-robin providers keep
+ * the exact committed-key match, so their dispatch contract is unchanged.
+ */
+export function providerApiKeySelectionMatches(
+  provider: OcxProviderConfig,
+  expected: ProviderApiKeySelection,
+): boolean {
+  if (provider.apiKeySelectionRevision !== expected.revision) return false;
   const current = captureProviderApiKeySelection(provider);
-  return current.entryId === expected.entryId && current.reference === expected.reference
-    && current.revision === expected.revision;
+  if (current.entryId === expected.entryId && current.reference === expected.reference) return true;
+  return provider.apiKeyPoolStrategy === "round-robin"
+    && expected.entryId !== undefined
+    && expected.reference !== undefined
+    && (provider.apiKeyPool ?? []).some(entry => entry.id === expected.entryId && entry.key === expected.reference);
 }
 
-function currentKeyProvider(config: OcxConfig, name: string): OcxProviderConfig | null {
+/** Resolve the provider row as it would send `reference` (default: its committed key). */
+function currentKeyProvider(config: OcxConfig, name: string, reference?: string): OcxProviderConfig | null {
   const configured = config.providers[name];
   if (!configured || configured.disabled) return null;
-  const current = routedProviderConfig(name, { ...configured, _apiKeyAttempt: undefined });
+  const current = routedProviderConfig(name, {
+    ...configured,
+    ...(reference !== undefined ? { apiKey: reference } : {}),
+    _apiKeyAttempt: undefined,
+  });
   if (current.authMode === "oauth" || current.authMode === "forward") return null;
   if (current.authMode === "key" && !current.keyOptional && !current.apiKey?.trim()) return null;
   return current;
+}
+
+/** The stamped reference when it is a still-valid round-robin pick other than the committed key. */
+function stampedPoolReference(provider: OcxProviderConfig | undefined, expected: ProviderApiKeySelection | undefined): string | undefined {
+  if (!provider || !expected || expected.reference === undefined) return undefined;
+  if (expected.reference === provider.apiKey) return undefined;
+  return providerApiKeySelectionMatches(provider, expected) ? expected.reference : undefined;
 }
 
 /** Physical-send check; stored references alone do not detect a changed env/keychain value. */
@@ -31,22 +61,32 @@ export function providerApiKeySelectionIsCurrent(
   name: string,
   routedProvider: OcxProviderConfig,
 ): boolean {
-  const current = currentKeyProvider(config, name);
+  const configured = config.providers[name];
   const expected = routedProvider._apiKeyAttempt;
-  return current !== null && expected !== undefined
-    && matchesSelection(config.providers[name]!, expected)
+  if (!configured || expected === undefined || !providerApiKeySelectionMatches(configured, expected)) return false;
+  const current = currentKeyProvider(config, name, stampedPoolReference(configured, expected));
+  return current !== null
     && current.apiKey === routedProvider.apiKey
     && current.authMode === routedProvider.authMode
     && current.baseUrl === routedProvider.baseUrl;
 }
 
-/** Rebuild transport from the already committed choice; never allocate or publish a selection. */
+/**
+ * Rebuild transport from the already committed choice; never allocate or publish a selection.
+ * A round-robin pick that is still a valid pool member at the current revision is kept, so a
+ * transport refresh (changed base URL, headers, env value) does not collapse it onto the
+ * committed key.
+ */
 export function resolveCurrentProviderApiKeyTransport(
   config: OcxConfig,
   name: string,
   routedProvider: OcxProviderConfig,
 ): OcxProviderConfig | null {
-  const current = currentKeyProvider(config, name);
+  const current = currentKeyProvider(
+    config,
+    name,
+    stampedPoolReference(config.providers[name], routedProvider._apiKeyAttempt),
+  );
   if (!current) return null;
   const runtime = routedProvider as OcxProviderTransport;
   const headers = { ...current.headers };
@@ -84,7 +124,7 @@ export function commitProviderApiKeySelection<T>(
     if (!provider || provider.authMode === "oauth" || provider.authMode === "forward") {
       return { changed: false, value: { status: "unavailable" } };
     }
-    if (expectedSelection && !matchesSelection(provider, expectedSelection)) {
+    if (expectedSelection && !providerApiKeySelectionMatches(provider, expectedSelection)) {
       return { changed: false, value: { status: "superseded", provider: structuredClone(provider) } };
     }
     const before = provider.apiKey;

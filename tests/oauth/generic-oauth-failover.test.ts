@@ -435,16 +435,17 @@ describe("sidecar on429 wiring", () => {
     //                key-auth defaults and Anthropic's own wire/pool remain unchanged.
     //   anthropic = 3: the same, MINUS runTurn -- that path is Cursor-only (cursor.ts is the
     //                  sole adapter implementing runTurn), so Anthropic cannot reach it.
-    //   key       = 3: hasKeyPoolFailover guards the two 429 response loops plus the
-    //                  pre-stream 401 recovery site (a rejected key rotates instead of
-    //                  failing the request); the sidecar reaches the key pool through
-    //                  rotateProviderTransportOn429 instead.
+    //   key       = 5: hasKeyPoolFailover guards the adapter loop's 401, 429 and billing/quota
+    //                  (402, key-scoped 400/403) arms, the continuation loop's key-scoped arm,
+    //                  and the native Responses passthrough key-pool arm (which had none until
+    //                  devlog 261002_rr_multimodal_quota_bleed); the sidecar reaches the key pool
+    //                  through rotateProviderTransportOn429 instead.
     //
     // Adding a fifth recovery site means deciding, deliberately, which rotators it needs and
     // updating the matching number. That decision is the thing this test exists to force.
     expect(counts.generic).toBe(5);
     expect(counts.anthropic).toBe(3);
-    expect(counts.key).toBe(3);
+    expect(counts.key).toBe(5);
   });
 
   test("the helper fails closed rather than pairing a new bearer with an old identity", () => {

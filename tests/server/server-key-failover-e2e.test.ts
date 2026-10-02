@@ -713,7 +713,7 @@ describe("server 429 key failover (end-to-end)", () => {
     }
   });
 
-  test("without a configured strategy the cooled key is still used", async () => {
+  test("without a configured strategy a cooled committed key is still replaced", async () => {
     const seen = await cooledCommittedKeySetup();
     const server = startServer(0);
     try {
@@ -722,9 +722,11 @@ describe("server 429 key failover (end-to-end)", () => {
         body: JSON.stringify({ model: "pooled/test", stream: false, messages: [{ role: "user", content: "hello" }] }),
       });
       expect(response.status).toBe(200);
-      // The other half of the contract: rotation stays reactive-only for an install that never
-      // asked for a strategy, so the committed key is honoured even when it is cooling.
-      expect(seen).toEqual(["Bearer synthetic-first"]);
+      // This used to pin the opposite (no strategy = the cooling key is sent anyway). That was
+      // root cause R4 in devlog/_plan/261002_rr_multimodal_quota_bleed: a key that failed with a
+      // verdict nothing rotated on stayed committed, so every "continue" hit it again. An omitted
+      // strategy now behaves like fill-first: a healthy committed key is kept, a cooling one is not.
+      expect(seen).toEqual(["Bearer synthetic-second"]);
     } finally {
       await server.stop(true);
     }

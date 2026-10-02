@@ -68,6 +68,7 @@ export type AttemptRecoveryKind =
   | "oauth-401"
   | "key-401"
   | "key-429"
+  | "key-quota"
   | "rate-limit-429"
   | "anthropic-oauth-429"
   | "oauth-account-429"
@@ -126,6 +127,8 @@ export interface PersistedUsageAttempt {
   provider: string;
   /** Absent on historic attempts and routes whose subscription attribution is unknown. */
   credentialSource?: UsageCredentialSource;
+  /** Non-secret API-key pool entry id that served this attempt; absent outside 2+ key pools. */
+  apiKeyEntryId?: string;
   model: string;
   adapter: string;
   status: number;
@@ -479,6 +482,7 @@ const ATTEMPT_RECOVERY_KINDS = new Set<AttemptRecoveryKind>([
   "oauth-401",
   "key-401",
   "key-429",
+  "key-quota",
   "rate-limit-429",
   "anthropic-oauth-429",
   "oauth-account-429",
@@ -507,6 +511,15 @@ const FAST_DOWNGRADE_REASONS = new Set<NonNullable<AttemptTierOutcome["fastDowng
 
 export function isLabRouteSubjectId(value: unknown): value is string {
   return typeof value === "string" && LAB_ROUTE_SUBJECT_ID_RE.test(value);
+}
+
+/**
+ * An API-key pool entry id as it may appear in a usage row: a short token of id characters.
+ * Pool ids are content-derived 8-hex digests by default (never the key) or a short operator
+ * id; anything else -- a pasted key, free text -- is dropped rather than persisted.
+ */
+export function isApiKeyEntryId(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9._-]{1,40}$/.test(value);
 }
 
 function isNonNegativeFiniteNumber(value: unknown): value is number {
@@ -628,6 +641,7 @@ function normalizeUsageAttempt(raw: unknown): PersistedUsageAttempt | null {
       && (attempt.credentialSource === "grok-oauth" || attempt.credentialSource === "xai-api-key")
       ? { credentialSource: attempt.credentialSource }
       : {}),
+    ...(isApiKeyEntryId(attempt.apiKeyEntryId) ? { apiKeyEntryId: attempt.apiKeyEntryId } : {}),
     model: attempt.model,
     adapter: attempt.adapter,
     status: attempt.status,

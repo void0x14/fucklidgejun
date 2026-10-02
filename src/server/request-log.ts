@@ -38,6 +38,7 @@ import {
   readRecentUsageEntries,
   usageForFinalLog,
   usageStatusForFinalLog,
+  isApiKeyEntryId,
   usageTotalTokens,
   type AttemptRecoveryKind,
   type CacheTelemetryProvenance,
@@ -1534,12 +1535,22 @@ export function sealRequestAttemptIdentity(
 export function recordAttemptCredentialSource(
   attempt: PersistedUsageAttempt | undefined,
   providerName: string,
-  provider: Pick<OcxProviderConfig, "authMode" | "baseUrl" | "adapter">,
+  provider: Pick<OcxProviderConfig, "authMode" | "baseUrl" | "adapter">
+    & Partial<Pick<OcxProviderConfig, "apiKeyPool" | "_apiKeyAttempt">>,
   adapterName: string = provider.adapter,
 ): void {
   if (!attempt) return;
   // Rebinding an attempt to an unrecognized route must not retain its previous attribution.
   delete attempt.credentialSource;
+  delete attempt.apiKeyEntryId;
+  // Which API-key pool entry served this attempt: the non-secret pool id from the route's own
+  // selection stamp (never the key, never its free-text label). Only for real pools, where it
+  // is the evidence a per-key failure investigation needs and the logs could not provide.
+  const entryId = provider._apiKeyAttempt?.entryId;
+  if ((provider.apiKeyPool?.length ?? 0) >= 2 && provider.authMode !== "oauth" && provider.authMode !== "forward"
+    && isApiKeyEntryId(entryId)) {
+    attempt.apiKeyEntryId = entryId;
+  }
   if (providerName !== "xai"
     || !["openai-chat", "openai-responses"].includes(adapterName)) return;
   try {
