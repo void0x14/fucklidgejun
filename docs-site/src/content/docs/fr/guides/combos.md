@@ -235,8 +235,11 @@ Cette étape conserve un effort existant et les autres champs reasoning. La norm
 Par défaut, une combinaison publie l’**intersection** des modalités d’entrée de ses cibles : les images ne
 sont activées que lorsque toutes les cibles les annoncent. Définissez `imageInput: "disabled"` pour forcer
 le texte seul même si toutes les cibles prennent en charge les images. Le catalogue retire alors `image`
-de `inputModalities`, et les requêtes contenant des images sont rejetées avec le code HTTP 400 avant tout
-appel de cible. La valeur `"auto"`, ou l’absence du champ, conserve l’intersection automatique.
+de `inputModalities`, et chaque image de l’entrée (tour courant, historique, sorties d’outils et historique
+restauré depuis `previous_response_id`) est remplacée par le texte
+`[image omitted: combo <id> does not accept image input]` avant tout appel de cible. Le tour est distribué
+normalement et aucune cible ne reçoit d’octets d’image ; une requête n’est pas rejetée parce qu’elle contient
+une image, si bien qu’un client qui conserve une image dans son historique peut poursuivre la session. La valeur `"auto"`, ou l’absence du champ, conserve l’intersection automatique.
 
 ## Tâches du sous-agent v2 chiffrées
 
@@ -335,7 +338,7 @@ Les combos sont stockés dans l'objet `combos` de niveau supérieur, saisi par l
 | `stickyLimit` | Non | `1` | Nombre entier de 1 à 100 requêtes réussies par sélection à tour de rôle. S’applique uniquement à `round-robin`. |
 | `defaultEffort` | Non | `null` | `low`, `medium`, `high`, `xhigh`, `max` ou `ultra` ; appliqué uniquement lorsque l'appelant omet ses efforts et que la cible annonce son soutien. |
 | `reasoningEffortMode` | Non | `"strict"` | `strict` ou `adaptive` ; choisit l’intersection des capacités et la normalisation par cible. |
-| `imageInput` | Non | `"auto"` | `"auto"` ou `"disabled"`. `"auto"` publie les images uniquement si toutes les cibles les prennent en charge ; `"disabled"` impose le texte seul, retire les images des modalités publiées et rejette les requêtes qui en contiennent avant leur distribution. |
+| `imageInput` | Non | `"auto"` | `"auto"` ou `"disabled"`. `"auto"` publie les images uniquement si toutes les cibles les prennent en charge ; `"disabled"` impose le texte seul, retire les images des modalités publiées et remplace chaque image de l’entrée, historique compris, par un texte de substitution avant la distribution. |
 | `alias` | Non | aucun | Identifiant de modèle public tronqué facultatif ; utilisez les règles d'alias ci-dessus. Une valeur vide est stockée sans alias. |
 | `nativeAlias` | Non | `false` | Autoriser explicitement un `alias` natif nu actuellement pris en charge à avoir la priorité sur le routage et le catalogue. Jamais déduit de l'alias. |
 | `displayName` | Non | aucun | Étiquette de catalogue délimitée en affichage uniquement. Obligatoire et non vide lorsque `nativeAlias` est vrai. |

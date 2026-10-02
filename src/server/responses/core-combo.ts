@@ -14,6 +14,7 @@ import type { TranslatorBudget } from "../../lib/translator-budget";
 import {
   getCombo,
   comboRequestHasImageInput,
+  stripComboRequestImages,
   pickComboTargetWithWait,
   targetKey,
   concreteComboRequestBody,
@@ -189,9 +190,9 @@ export async function executeComboResponses(
   const comboSendScope = isRequestExecutionBudget(options.sendBudget)
     ? deriveSendBudgetScope(options.sendBudget, comboExecutionBudgetPolicy(combo.targets.length))
     : undefined;
-  // Expand previous_response_id before image policy and child dispatch so a
-  // continuation that only references prior images still fails closed when
-  // imageInput is disabled (and so targets see the full replayed input).
+  // Expand previous_response_id before image policy and child dispatch so images a
+  // continuation only references are stripped when imageInput is disabled (and so
+  // targets see the full replayed input).
   const inboundClientThreadId = req.headers.get("x-codex-parent-thread-id")?.trim() || undefined;
   const body = expandPreviousResponseInput(rawBody, inboundClientThreadId);
   const scopeMismatch = previousResponseScopeMismatch(body);
@@ -221,14 +222,25 @@ export async function executeComboResponses(
       "Continuation state is unavailable or corrupt; resend the full conversation without previous_response_id.",
     );
   }
-  if (combo.imageInput === "disabled" && comboRequestHasImageInput(body)) {
-    return formatErrorResponse(400, "invalid_request_error", `Combo "${comboId}" does not accept image input`);
+  // "disabled" means no target receives pixels, and it is enforced by replacing each image with
+  // a text placeholder rather than by rejecting the turn. Clients keep an image in history (a
+  // tool result, an earlier turn, the replayed previous_response_id input above) for the rest of
+  // the session, so a rejection here failed every later request and the session could not be
+  // continued. This runs before the replay snapshot captures `body`, so every target attempt and
+  // failover hop dispatches the stripped input.
+  const imagesOmitted = combo.imageInput === "disabled" && comboRequestHasImageInput(body)
+    ? stripComboRequestImages(body, comboId)
+    : 0;
+  if (imagesOmitted > 0) {
+    console.warn(`[opencodex] combo ${comboId}: replaced ${imagesOmitted} image part(s) with a placeholder (imageInput disabled)`);
   }
   const comboReplaySnapshot = {
     sourceBody: body,
     previousResponseInputExpanded: body !== rawBody
       && typeof (body as { previous_response_id?: unknown }).previous_response_id === "string",
-    providerContinuation: !scopeMismatch && body !== rawBody && requestedPreviousId
+    // A provider-side continuation could let the target resolve the stripped images out of
+    // band, so a turn that lost images replays its (stripped) input in full instead.
+    providerContinuation: !scopeMismatch && body !== rawBody && requestedPreviousId && imagesOmitted === 0
       ? previousResponseProviderState(requestedPreviousId)
       : undefined,
     recoveredPlaintext: false,

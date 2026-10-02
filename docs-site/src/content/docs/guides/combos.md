@@ -307,8 +307,12 @@ combo's Capabilities section.
 By default a combo publishes the **intersection** of its targets' input modalities (image is
 enabled only when every target advertises it). Set `imageInput: "disabled"` to force text-only
 even when every target supports images — the catalog drops `image` from `inputModalities`, and
-image-bearing requests are rejected with HTTP 400 before any target is called. `"auto"` (or
-omitting the field) keeps the automatic intersection.
+every image part in the request input (the current turn, earlier history, tool outputs, and history
+restored from `previous_response_id`) is replaced with the text
+`[image omitted: combo <id> does not accept image input]` before any target is called. The turn is
+dispatched normally and no target receives image bytes. Requests are not rejected for carrying an
+image, so a client that keeps an image in its history (for example a screenshot a tool read earlier)
+can continue the session. `"auto"` (or omitting the field) keeps the automatic intersection.
 
 ## Encrypted v2 sub-agent tasks
 
@@ -415,7 +419,7 @@ Combos are stored in the top-level `combos` object, keyed by combo id:
 | `waitForCooldownMs` | No | `0` | Integer from 0 to 600000. Maximum time to wait for the earliest eligible cooling target before returning `combo_unavailable`; abort cancels the wait. |
 | `defaultEffort` | No | `null` | `low`, `medium`, `high`, `xhigh`, `max`, or `ultra`; applied only when the caller omits effort and the target advertises support. |
 | `reasoningEffortMode` | No | `"strict"` | `"strict"` intersects every known target ladder, so one target advertising no effort control empties the combo's picker. `"adaptive"` excludes those empty ladders from the published intersection. At dispatch, explicit empty or adaptive unknown ladders remove unsupported effort/thinking controls while preserving supported non-effort reasoning fields such as `reasoning.summary`; known non-empty targets keep existing effort resolution. |
-| `imageInput` | No | `"auto"` | `"auto"` or `"disabled"`. `"auto"` publishes image support only when every target supports images; `"disabled"` forces text-only (drops image from published modalities and rejects image-bearing requests before dispatch). |
+| `imageInput` | No | `"auto"` | `"auto"` or `"disabled"`. `"auto"` publishes image support only when every target supports images; `"disabled"` forces text-only (drops image from published modalities and replaces every input image, history included, with a text placeholder before dispatch). |
 | `alias` | No | none | Optional trimmed public model id; use the alias rules above. An empty value is stored as no alias. |
 | `nativeAlias` | No | `false` | Explicitly permit a currently supported bare native `alias` to take routing and catalog precedence. Never inferred from the alias. |
 | `displayName` | No | none | Bounded display-only catalog label. Required and non-empty when `nativeAlias` is true. |

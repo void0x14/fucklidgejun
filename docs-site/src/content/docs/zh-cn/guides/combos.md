@@ -179,7 +179,7 @@ combo 失败分为 **跳转** 失败和 **终止** 失败。
 
 ## 图片 / 多模态能力
 
-默认情况下，combo 会发布其目标 **input modalities 的交集**（只有当每个目标都声明支持图片时，图片才会启用）。设置 `imageInput: "disabled"` 可在目标均支持图片时仍强制仅文本——目录会从 `inputModalities` 中去掉 `image`，带图请求会在分发前以 HTTP 400 拒绝。`"auto"`（或省略该字段）保持自动交集。
+默认情况下，combo 会发布其目标 **input modalities 的交集**（只有当每个目标都声明支持图片时，图片才会启用）。设置 `imageInput: "disabled"` 可在目标均支持图片时仍强制仅文本——目录会从 `inputModalities` 中去掉 `image`，输入中的每张图片（当前轮次、历史、工具输出以及从 `previous_response_id` 恢复的历史）都会在调用任何目标之前替换为文本 `[image omitted: combo <id> does not accept image input]`，然后正常分发，任何目标都不会收到图片数据；请求不会因为带图而被拒绝，因此历史中保留图片的客户端仍可继续会话。`"auto"`（或省略该字段）保持自动交集。
 
 ## 加密的 v2 子代理任务
 
@@ -269,7 +269,7 @@ combo 会存储在顶层的 `combos` 对象中，并以 combo id 作为键：
 | `waitForCooldownMs` | 否 | `0` | 0 到 600000 的整数。在返回 `combo_unavailable` 前等待最早恢复资格的冷却中目标的最长时间；请求中止会取消等待。 |
 | `defaultEffort` | 否 | `null` | `low`、`medium`、`high`、`xhigh`、`max` 或 `ultra`；仅当调用方省略 effort 且目标声明支持时才会应用。 |
 | `reasoningEffortMode` | 否 | `"strict"` | `strict` 或 `adaptive`；选择混合能力交集和目标级控制归一化。 |
-| `imageInput` | 否 | `"auto"` | `"auto"` 或 `"disabled"`。`"auto"` 仅在每个目标都支持图片时发布图片能力；`"disabled"` 强制仅文本（从对外能力中去掉图片，并在分发前拒绝带图请求）。 |
+| `imageInput` | 否 | `"auto"` | `"auto"` 或 `"disabled"`。`"auto"` 仅在每个目标都支持图片时发布图片能力；`"disabled"` 强制仅文本（从对外能力中去掉图片，并在分发前将输入中的每张图片（包括历史）替换为文本占位符）。 |
 | `alias` | 否 | 无 | 可选的、已修剪的公开模型 id；使用上面的别名规则。空值会以“无别名”形式存储。 |
 | `nativeAlias` | 否 | `false` | 显式允许当前受支持的裸原生 alias 接管路由和 catalog 优先级；绝不会根据 alias 自动推断。 |
 | `displayName` | 否 | 无 | 仅用于 catalog 展示的有界标签；`nativeAlias` 为 true 时必须非空。 |

@@ -2319,21 +2319,43 @@ describe("server combo failover 030 activation matrix", () => {
     expect(isComboTargetInCooldown("free", target, t0 + 10 * 60_000)).toBe(false);
   });
 
-  test("disabled image input rejects the request before any combo target is called", async () => {
-    let hits = 0;
-    const a = serve(() => {
-      hits += 1;
-      return chatSuccess("unexpected", "m1");
+  test("disabled image input replaces every image with a placeholder and dispatches", async () => {
+    // An image anywhere in the input (current turn, history, tool output) must not reject the
+    // turn: a client that keeps the image in history would otherwise be stuck on a permanent 400.
+    // The combo still guarantees no pixels reach a target.
+    const bodies: Array<Record<string, unknown>> = [];
+    const a = serve(async request => {
+      bodies.push(await request.json() as Record<string, unknown>);
+      return chatSuccess("text only", "m1");
     });
     const config = comboConfig({ a: provider("openai-chat", baseUrl(a), "key-a") }, undefined, {
       imageInput: "disabled",
     });
     const response = await post(config, {
-      input: [{ role: "user", content: [{ type: "input_image", image_url: "data:image/png;base64,aGVsbG8=" }] }],
+      input: [
+        { role: "user", content: [
+          { type: "input_text", text: "look" },
+          { type: "input_image", image_url: "data:image/png;base64,aGVsbG8=" },
+        ] },
+        { type: "function_call", call_id: "call_img", name: "read_file", arguments: "{}" },
+        { type: "function_call_output", call_id: "call_img", output: [
+          { type: "input_text", text: "screenshot" },
+          { type: "input_image", image_url: "data:image/png;base64,d29ybGQ=" },
+        ] },
+        { role: "user", content: [{ type: "input_image", file_id: "file_only_ref" }] },
+        { role: "user", content: "continue" },
+      ],
     });
-    expect(response.status).toBe(400);
-    expect(await response.text()).toContain("does not accept image input");
-    expect(hits).toBe(0);
+    expect(response.status).toBe(200);
+    expect(bodies).toHaveLength(1);
+    const wire = JSON.stringify(bodies[0]);
+    expect(wire).not.toContain("data:image/png");
+    expect(wire).not.toContain("aGVsbG8=");
+    expect(wire).not.toContain("d29ybGQ=");
+    expect(wire).not.toContain("file_only_ref");
+    expect(wire).not.toContain("image_url");
+    expect(wire.split('[image omitted: combo free does not accept image input]')).toHaveLength(4);
+    expect(wire).toContain("continue");
   });
 
   test("disabled image input ignores tool schemas that only mention input_image", async () => {
@@ -2976,7 +2998,7 @@ describe("server combo failover 030 activation matrix", () => {
     },
   );
 
-  test("disabled image input rejects an image restored from previous_response_id before dispatch", async () => {
+  test("disabled image input strips an image restored from previous_response_id and keeps the session usable", async () => {
     const { rememberResponseState } = await import("../../src/responses/state");
     rememberResponseState(
       {
@@ -2992,10 +3014,10 @@ describe("server combo failover 030 activation matrix", () => {
         output: [{ type: "message", role: "assistant", content: "image received" }],
       },
     );
-    let hits = 0;
-    const a = serve(() => {
-      hits += 1;
-      return chatSuccess("unexpected", "m1");
+    const bodies: Array<Record<string, unknown>> = [];
+    const a = serve(async request => {
+      bodies.push(await request.json() as Record<string, unknown>);
+      return chatSuccess(`turn ${bodies.length}`, "m1");
     });
     const config = comboConfig({ a: provider("openai-chat", baseUrl(a), "key-a") }, undefined, {
       imageInput: "disabled",
@@ -3005,9 +3027,54 @@ describe("server combo failover 030 activation matrix", () => {
       input: [{ role: "user", content: "continue" }],
     });
 
-    expect(response.status).toBe(400);
-    expect(await response.text()).toContain("does not accept image input");
-    expect(hits).toBe(0);
+    expect(response.status).toBe(200);
+    const first = await response.json() as { id: string };
+    expect(bodies).toHaveLength(1);
+    const wire = JSON.stringify(bodies[0]);
+    expect(wire).not.toContain("data:image/png");
+    expect(wire).not.toContain("aGVsbG8=");
+    expect(wire).toContain("[image omitted: combo free does not accept image input]");
+    expect(wire).toContain("continue");
+
+    // The session is not poisoned: the next "continue" chained on the reply also dispatches.
+    const again = await post(config, {
+      previous_response_id: first.id,
+      input: [{ role: "user", content: "continue again" }],
+    });
+    expect(again.status).toBe(200);
+    expect(bodies).toHaveLength(2);
+    const secondWire = JSON.stringify(bodies[1]);
+    expect(secondWire).not.toContain("aGVsbG8=");
+    expect(secondWire).toContain("continue again");
+  });
+
+  test("disabled image input failover never re-sends a stripped image to the next target", async () => {
+    const bodies: Array<{ provider: string; wire: string }> = [];
+    const a = serve(async request => {
+      bodies.push({ provider: "a", wire: await request.text() });
+      return Response.json({ error: { message: "retry" } }, { status: 503 });
+    });
+    const b = serve(async request => {
+      bodies.push({ provider: "b", wire: await request.text() });
+      return chatSuccess("backup", "m2");
+    });
+    const config = comboConfig({
+      a: provider("openai-chat", baseUrl(a), "key-a"),
+      // The backup would accept images if they reached it; the combo policy still strips them.
+      b: provider("openai-chat", baseUrl(b), "key-b", { modelInputModalities: { m2: ["text", "image"] } }),
+    }, undefined, { imageInput: "disabled" });
+    const response = await post(config, {
+      input: [{ role: "user", content: [
+        { type: "input_text", text: "inspect" },
+        { type: "input_image", image_url: "data:image/png;base64,aGVsbG8=" },
+      ] }],
+    });
+    expect(response.status).toBe(200);
+    expect(bodies.map(row => row.provider)).toEqual(["a", "b"]);
+    for (const row of bodies) {
+      expect(row.wire).not.toContain("aGVsbG8=");
+      expect(row.wire).toContain("[image omitted: combo free does not accept image input]");
+    }
   });
 
   test("fresh child reparsing recomputes vision and effort per target", async () => {

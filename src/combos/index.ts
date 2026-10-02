@@ -53,6 +53,8 @@ export {
 export {
   comboIdFromRawBody,
   comboRequestHasImageInput,
+  comboImageOmittedText,
+  stripComboRequestImages,
   concreteComboRequestBody,
   resetComboEffortWarningStateForTests,
 } from "./request";

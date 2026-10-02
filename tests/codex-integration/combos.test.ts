@@ -18,6 +18,8 @@ import {
   comboModelId,
   comboPublicModelId,
   comboRequestHasImageInput,
+  comboImageOmittedText,
+  stripComboRequestImages,
   concreteComboRequestBody,
   comboCooldownRetryAfterSeconds,
   COMBO_REQUEST_RATE_COOLDOWN_MS,
@@ -283,6 +285,82 @@ describe("combo request cloning", () => {
       input: "plain text",
       tools: [{ type: "function", function: { name: "x", parameters: { type: "input_image" } } }],
     })).toBe(false);
+  });
+
+  test("stripComboRequestImages clears every image shape comboRequestHasImageInput detects", () => {
+    const marker = comboImageOmittedText("free");
+    expect(marker).toBe("[image omitted: combo free does not accept image input]");
+    // One body per shape the detector recognises: message content (data URL, remote URL,
+    // file_id-only, empty URL), a bare top-level input_image item, tool outputs of both kinds,
+    // nested content inside a tool output, and arrays nested inside arrays.
+    const shapes: unknown[][] = [
+      [{ role: "user", content: [{ type: "input_image", image_url: "data:image/png;base64,aGVsbG8=" }] }],
+      [{ type: "message", role: "user", content: [{ type: "input_image", image_url: "https://example.test/i.png", detail: "high" }] }],
+      [{ role: "user", content: [{ type: "input_image", file_id: "file_123" }] }],
+      [{ role: "user", content: [{ type: "input_image", image_url: "" }] }],
+      [{ role: "developer", content: [{ type: "input_image", image_url: "data:image/jpeg;base64,eA==" }] }],
+      [{ role: "assistant", content: [{ type: "input_image", image_url: "data:image/png;base64,eQ==" }] }],
+      [{ type: "input_image", image_url: "https://example.test/top.png" }],
+      [{ type: "function_call_output", call_id: "c1", output: [
+        { type: "input_text", text: "shot" },
+        { type: "input_image", image_url: "data:image/png;base64,d29ybGQ=" },
+      ] }],
+      [{ type: "custom_tool_call_output", call_id: "c2", output: [{ type: "input_image", image_url: "https://example.test/c.png" }] }],
+      [{ type: "function_call_output", call_id: "c3", output: [{ type: "message", content: [{ type: "input_image", image_url: "data:image/png;base64,eg==" }] }] }],
+      [[{ role: "user", content: [[{ type: "input_image", image_url: "data:image/png;base64,cQ==" }]] }]],
+    ];
+    for (const input of shapes) {
+      const body = { model: "combo/free", input: structuredClone(input) };
+      expect(comboRequestHasImageInput(body)).toBe(true);
+      const originalInput = body.input;
+      const snapshot = structuredClone(originalInput);
+      expect(stripComboRequestImages(body, "free")).toBe(1);
+      expect(comboRequestHasImageInput(body)).toBe(false);
+      const wire = JSON.stringify(body);
+      expect(wire).not.toContain("image_url");
+      expect(wire).not.toContain("file_123");
+      expect(wire).toContain(marker);
+      // Copy-on-write: replayed history may be shared, so the original tree is never mutated.
+      expect(originalInput).toEqual(snapshot);
+    }
+  });
+
+  test("stripComboRequestImages keeps text parts, tools, metadata, and image-free bodies untouched", () => {
+    const tools = [{ type: "function", name: "describe", parameters: { type: "object", properties: { example: { type: "input_image" } } } }];
+    const metadata = { note: { type: "input_image" } };
+    const body = {
+      model: "combo/free",
+      input: [
+        { role: "user", content: [{ type: "input_text", text: "a" }, { type: "input_image", image_url: "data:image/png;base64,aGVsbG8=" }] },
+        { role: "assistant", content: [{ type: "output_text", text: "b" }] },
+        { type: "function_call", call_id: "c1", name: "f", arguments: "{\"type\":\"input_image\"}" },
+        { type: "function_call_output", call_id: "c1", output: "plain string output" },
+      ],
+      tools,
+      metadata,
+    };
+    const untouchedItems = body.input.slice(1);
+    expect(stripComboRequestImages(body, "free")).toBe(1);
+    expect(body.input[0]).toEqual({ role: "user", content: [
+      { type: "input_text", text: "a" },
+      { type: "input_text", text: comboImageOmittedText("free") },
+    ] });
+    // Items without images keep their identity; only the carrying path is copied.
+    expect(body.input.slice(1)).toEqual(untouchedItems);
+    body.input.slice(1).forEach((item, index) => expect(item).toBe(untouchedItems[index]!));
+    expect(body.tools).toBe(tools);
+    expect(body.metadata).toBe(metadata);
+    expect(tools[0]!.parameters.properties.example).toEqual({ type: "input_image" });
+
+    const textOnly = { model: "combo/free", input: [{ role: "user", content: "hi" }] };
+    const textInput = textOnly.input;
+    expect(stripComboRequestImages(textOnly, "free")).toBe(0);
+    expect(textOnly.input).toBe(textInput);
+    const stringInput = { model: "combo/free", input: "plain" };
+    expect(stripComboRequestImages(stringInput, "free")).toBe(0);
+    expect(stringInput.input).toBe("plain");
+    expect(stripComboRequestImages(null, "free")).toBe(0);
+    expect(stripComboRequestImages([], "free")).toBe(0);
   });
 
   test("clones the untouched body and injects an omitted combo default", () => {
