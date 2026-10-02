@@ -84,6 +84,7 @@ import {
 } from "../request-log";
 import { sessionLaneIdFromRequest } from "../request-log-conversation";
 import { responseWithDeferredRequestLog } from "../relay";
+import { rewriteGrokForeignPaymentRequired } from "../grok-foreign-billing";
 import {
   corsHeaders,
   managementCorsHeaders,
@@ -1370,10 +1371,14 @@ export function createServeOptions(ctx: ServeOptionsContext) {
               finalizeNativePassthroughLog(499, { closeReason: "client_cancel" });
             },
           });
-          return withRequestLogId(
-            withCors(responseWithDeferredRequestLog(response, requestId, start, logCtx), req, policy),
-            requestId,
+          // Grok Build only: a non-xAI 402 becomes a typed 400 AFTER the deferred log has the
+          // real status (src/server/grok-foreign-billing.ts). Every other response passes through.
+          const delivered = await rewriteGrokForeignPaymentRequired(
+            responseWithDeferredRequestLog(response, requestId, start, logCtx),
+            logCtx,
+            config,
           );
+          return withRequestLogId(withCors(delivered, req, policy), requestId);
         }, { requestId, start, logCtx });
       }
 
@@ -1449,8 +1454,14 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         // `policy`, not `config`: this route is now served on the unauthenticated loopback
         // listener too (#4236), and only the receiving listener's view produces CORS headers
         // that match the admission decision made above.
+        // The Grok 402 rewrite wraps the whole Chat handler: its native and translated paths
+        // both record the real status before this outermost boundary sees the response.
         return runAdmittedHttpTurn(req, policy, async turnAdmissionLease => withCors(
-          await handleChatCompletions(req, config, logCtx, { requestId, start, turnAdmissionLease, admission }),
+          await rewriteGrokForeignPaymentRequired(
+            await handleChatCompletions(req, config, logCtx, { requestId, start, turnAdmissionLease, admission }),
+            logCtx,
+            config,
+          ),
           req,
           policy,
         ), { requestId, start, logCtx });

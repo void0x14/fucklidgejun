@@ -115,3 +115,4 @@ model_provider = "opencodex"
 - **服务安装后的 `ocx restart`：** 运行中的代理负责重启授权和排空协调；旧进程退出后，由已安装的服务管理器启动替换进程。服务监督始终保留。仅在 loopback 自动注册模式下，受管理区块也会在交接期间保留；非 loopback 部署使用手动管理的 Grok 配置。只有确认同一端口上出现另一个经过身份验证且健康的进程后，命令才会成功。
 - **配置读取时机：** 先启动 opencodex，再启动 `grok`，结果最可预测。Grok Build 会监视 `~/.grok/config.toml`，并在 `[model]` 表实际发生变化时重新加载（大约一秒的防抖，按内容比较），因此刷新后的区块可以在无需重启的情况下进入已打开的会话。要确认 Grok 解析到了什么，可以运行 `grok inspect`：它会列出已加载的配置来源，并提示被拒绝的字段，但不会打印最终解析出的模型列表。当前 Grok Build 会报告并跳过无效的模型字段，同时保留该模型条目的其余部分。TOML 语法错误仍会阻止文件加载。opencodex 会以原子方式写入文件，因此 Grok 每次重新加载时都会看到完整文档。
 - **目录更新：** 有边界线的区块反映的是注入时的目录状态。添加提供方或模型后，运行 `ocx ensure`（或重启代理）以刷新它。
+- **提供商余额错误（HTTP 402）：** 无论是哪个提供商返回的，Grok Build 只要收到 HTTP 402 就会显示它自己的“You hit your weekly limit”/“Purchase credits”提示。当 opencodex 背后的非 xAI 提供商余额耗尽时（例如 DeepSeek 的“Insufficient Balance”），opencodex 会改为向 Grok Build 返回 HTTP 400 `insufficient_quota`。消息会写明提供商名称，并说明该 402 是这个提供商的账户余额问题，而不是 Grok 的限额：请为该提供商充值或切换模型。来自 xAI 本身的 402 会原样透传，opencodex 的用量日志仍记录原始的 402。

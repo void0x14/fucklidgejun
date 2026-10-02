@@ -187,3 +187,10 @@ adlar bu nedenle noktalardan tamamen kaçınır.
 - **Katalog güncellemeleri:** çitle çevrili blok, enjeksiyon anındaki kataloğu
   yansıtır. Sağlayıcılar veya modeller ekledikten sonra yenilemek için `ocx
   ensure` çalıştırın (veya proxy'yi yeniden başlatın).
+- **Sağlayıcı bakiye hataları (HTTP 402):** Grok Build, hangi sağlayıcı yanıt verirse versin her
+  HTTP 402 için kendi "You hit your weekly limit" / "Purchase credits" uyarısını gösterir. opencodex
+  arkasındaki xAI dışı bir sağlayıcının bakiyesi bittiğinde (örneğin DeepSeek "Insufficient
+  Balance"), opencodex Grok Build'e bunun yerine HTTP 400 `insufficient_quota` döndürür. Mesaj
+  sağlayıcıyı adıyla anar ve 402'nin bir Grok limiti değil, o sağlayıcının hesap bakiyesi olduğunu
+  belirtir: o sağlayıcıya bakiye yükleyin ya da model değiştirin. xAI'ın kendisinden gelen bir 402
+  değiştirilmeden iletilir ve opencodex kullanım kayıtları özgün 402'yi kaydetmeye devam eder.
