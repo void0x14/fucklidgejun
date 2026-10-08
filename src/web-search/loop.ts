@@ -266,6 +266,27 @@ class LoopError extends Error {
 }
 
 /**
+ * Does this failure name an upstream CONTENT INSPECTION refusal rather than a transport fault?
+ *
+ * Chinese-model gateways (DashScope/Alibaba among them) inspect the OUTPUT the model just produced
+ * and can abort an accepted 200 stream with `InternalError.Algo.DataInspectionFailed` before any
+ * token reaches the client. The verdict describes one generation, not the prompt: the same
+ * conversation is routinely accepted on the very next call, and no other credential or provider
+ * changes that answer. So the loop answers it the only way that can help -- resend the identical
+ * iteration once -- rather than ending the user's turn.
+ *
+ * Deliberately narrow. A schema error, a context-length overflow, a genuine content-policy refusal
+ * and every transport failure are NOT matched: those are deterministic for this request, and retrying
+ * them spends a second full generation to reach the same refusal. The second refusal is likewise not
+ * retried -- at that point the operator has his answer.
+ */
+function isUpstreamContentInspectionRefusal(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return /DataInspectionFailed|output data may contain inappropriate content|content inspection failed/i
+    .test(error.message);
+}
+
+/**
  * Dependencies for one web-search loop iteration: parsed request, active adapter,
  * incoming metadata, and the configured search executor.
  */
@@ -852,6 +873,7 @@ export async function runWithWebSearch(deps: WebSearchLoopDeps): Promise<Respons
   // (search cell BEFORE the assistant message). Iteration 2+ failures surface as an in-stream error.
   async function* produce(): AsyncGenerator<AdapterEvent> {
     let prepared = firstPrepared;
+    let contentInspectionResends = 0;
     try {
       for (let i = 0; i < HARD_CAP; i++) {
         const forceAnswer = searchesExecuted >= maxSearches;
@@ -862,7 +884,30 @@ export async function runWithWebSearch(deps: WebSearchLoopDeps): Promise<Respons
             prepared = yield* prepareIterationEvents(forceAnswer);
           }
           // Raw-byte progress heartbeats reach the bridge; semantic events remain buffered.
-          const split = yield* consumeIterationEvents(prepared);
+          let split: IterationSplit;
+          try {
+            split = yield* consumeIterationEvents(prepared);
+          } catch (error) {
+            // An upstream content-inspection refusal describes ONE generation, not this
+            // conversation: the identical request is routinely accepted on the next call, and no
+            // other credential or provider changes that answer. It aborts mid-stream, so nothing
+            // client-visible escaped -- the iteration only yielded heartbeats before the refusal.
+            // Re-acquire the SAME iteration (same messages, tools and forceAnswer) once. A second
+            // refusal is the operator's answer, and an unbounded resend would double-bill every
+            // genuinely refused turn.
+            if (
+              contentInspectionResends === 0
+              && !signal.aborted
+              && isUpstreamContentInspectionRefusal(error)
+            ) {
+              contentInspectionResends += 1;
+              yield { type: "heartbeat" };
+              prepared = yield* prepareIterationEvents(forceAnswer);
+              split = yield* consumeIterationEvents(prepared);
+            } else {
+              throw error;
+            }
+          }
 
           // Loop (search + re-ask) ONLY when the model's actionable output is purely web_search. A real
           // tool call (e.g. shell/apply_patch) means this turn is terminal for Codex — finalize so those

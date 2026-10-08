@@ -292,6 +292,64 @@ describe("issue #1001 — forced-answer passes must produce usable output", () =
   });
 });
 
+// An upstream content inspector that refuses the OUTPUT aborts the routed stream with a
+// provider-level error, long after the 200 headers were accepted. It says nothing about the
+// prompt and the same prompt is regularly accepted on the next call, so it is retried exactly
+// once against the same model. A second refusal is the operator's answer, not ours to retry.
+describe("upstream content-inspection refusal recovery", () => {
+  const DATA_INSPECTION = "<400> InternalError.Algo.DataInspectionFailed: Output data may contain inappropriate content.";
+
+  async function driveOutcomes(outcomes: Array<"refuse" | "answer">) {
+    let pass = 0;
+    const seen: OcxParsedRequest[] = [];
+    const adapter: ProviderAdapter = {
+      name: "data-inspection",
+      buildRequest: (request) => {
+        seen.push(request);
+        return { url: "https://routed.test/v1", method: "POST", headers: {}, body: "{}" };
+      },
+      fetchResponse: async () => new Response("wire", { status: 200 }),
+      async *parseStream() {
+        if (outcomes[Math.min(pass, outcomes.length - 1)] === "refuse") {
+          pass++;
+          throw new Error(DATA_INSPECTION);
+        }
+        pass++;
+        yield { type: "text_delta", text: "accepted answer" };
+        yield { type: "done" };
+      },
+      async parseResponse() {
+        throw new Error("parseResponse must be unreachable");
+      },
+    };
+    const response = await runWithWebSearch({
+      parsed: parseRequest({ model: "routed/model", input: "hi", stream: true, tools: [{ type: "web_search" }] }),
+      adapter,
+      forwardProvider,
+      hostedTool: { type: "web_search" },
+      selectedForwardHeaders: new Headers({ authorization: "Bearer token" }),
+      settings: { model: "gpt-5.6-luna", reasoning: "low", timeoutMs: 30_000 },
+      maxSearches: 1,
+    });
+    return { frames: await collectSse(response.body!), sent: seen.length };
+  }
+
+  test("a content-inspection refusal is retried once and the retry's answer reaches the client", async () => {
+    const { frames, sent } = await driveOutcomes(["refuse", "answer"]);
+    expect(sent).toBe(2);
+    expect(frames.some(frame => frame.event === "response.completed")).toBe(true);
+    expect(frames.some(frame => frame.event === "response.failed")).toBe(false);
+    expect(frames.flatMap(frame => (frame.data as { delta?: unknown }).delta).join("")).toContain("accepted answer");
+  });
+
+  test("a second refusal is reported instead of retried a third time", async () => {
+    const { frames, sent } = await driveOutcomes(["refuse", "refuse"]);
+    expect(sent).toBe(2);
+    expect(frames.some(frame => frame.event === "response.failed")).toBe(true);
+    expect(frames.some(frame => frame.event === "response.completed")).toBe(false);
+  });
+});
+
 const routedProvider: OcxProviderConfig = {
   adapter: "openai-chat",
   baseUrl: "https://example.test/v1",
