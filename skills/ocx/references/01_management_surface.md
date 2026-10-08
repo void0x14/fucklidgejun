@@ -852,8 +852,26 @@ JSON mode: `payload`.
 
 - A bare invocation reads and never writes.
 
+### `ocx operation`
+
+Read and configure the provider/model each operation agent runs on.
+
+| Method | Route |
+|---|---|
+| GET | `/api/operation-models` |
+| PUT | `/api/operation-models` |
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--json` | boolean | Emit the operation model map as JSON. |
+
+JSON mode: `payload`.
+
+- Agents: orchestrator, recon, classifier, exploit, report.
+- An empty selection means the agent inherits from the orchestrator.
+
 ## Counts
 
-- declared capabilities: 46
-- of those, state-changing: 23
+- declared capabilities: 47
+- of those, state-changing: 24
 - head-resolved invocations: 2

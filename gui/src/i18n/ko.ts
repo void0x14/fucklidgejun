@@ -67,6 +67,7 @@ export const ko: Record<TKey, string> = {
   "nav.combos": "콤보",
   "nav.subagents": "서브에이전트",
 
+  "nav.operation": "Operation",
   // routing intelligence
   "routing.title": "라우팅 인텔리전스 (beta)",
   "routing.subtitle": "정책 프로필, 드라이런 평가, 소스 기반 라우팅 분석.",

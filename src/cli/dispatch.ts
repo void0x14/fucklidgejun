@@ -786,6 +786,10 @@ const commandRunners: Record<string, CommandRunner> = {
     const { handleEffortCommand } = await import("./effort");
     return await handleEffortCommand(deps.args.slice(1), { findLiveProxy: deps.findLiveProxy });
   },
+  operation: async deps => {
+    const { handleOperationCommand } = await import("./operation");
+    return await handleOperationCommand(deps.args.slice(1));
+  },
   agent: async deps => {
     const { handleAgentCommand } = await import("./agent");
     return await handleAgentCommand(deps.args.slice(1));

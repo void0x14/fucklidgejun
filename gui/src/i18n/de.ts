@@ -67,6 +67,7 @@ export const de: Record<TKey, string> = {
   "nav.combos": "Combos",
   "nav.subagents": "Sub-Agenten",
 
+  "nav.operation": "Operation",
   // routing intelligence
   "routing.title": "Routing-Intelligenz (beta)",
   "routing.subtitle": "Policy-Profile, Trockenlauf-Bewertung und routinggestützte Analysen.",

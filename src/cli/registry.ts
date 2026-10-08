@@ -320,6 +320,16 @@ export const CLI_COMMANDS: CliCommandEntry[] = [
     summary: "Manage headless multi-agent, roster, effort, injection, and sidecar settings.",
   },
   {
+    name: "operation",
+    usage: "ocx operation [show|set <agent> <provider/model|->|clear <agent>] [--json]",
+    summary: "Read and configure the provider/model each bug-bounty operation agent runs on.",
+    details: [
+      "Agents: orchestrator, recon, classifier, exploit, report.",
+      "An empty selection (set to `-`, or `clear`) means the agent inherits from the orchestrator.",
+      "Drives GET/PUT /api/operation-models, so it requires a running proxy.",
+    ],
+  },
+  {
     name: "observe",
     usage: "ocx observe <logs|usage|storage|memory|debug|claude-inbound|injection> ...",
     summary: "Inspect proxy requests, usage, storage, memory, and debug data.",

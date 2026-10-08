@@ -806,6 +806,18 @@ export const CAPABILITIES: readonly Capability[] = [
     json: "payload",
     details: ["A bare invocation reads and never writes."],
   },
+  {
+    command: ["operation"],
+    summary: "Read and configure the provider/model each operation agent runs on.",
+    routes: [
+      { method: "GET", path: "/api/operation-models" },
+      { method: "PUT", path: "/api/operation-models" },
+    ],
+    flags: [{ name: "--json", value: "boolean", summary: "Emit the operation model map as JSON." }],
+    mutates: true,
+    json: "payload",
+    details: ["Agents: orchestrator, recon, classifier, exploit, report.", "An empty selection means the agent inherits from the orchestrator."],
+  },
 ];
 
 /** Capabilities that drive `route`, for `ocx capabilities --route`. */

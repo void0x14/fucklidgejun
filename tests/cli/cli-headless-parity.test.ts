@@ -260,6 +260,7 @@ describe("headless GUI parity CLI", () => {
       ["/api/providers", "ocx provider"],
       ["/api/provider-", "ocx provider/models"],
       ["/api/selected-models", "ocx models"],
+      ["/api/operation-models", "ocx operation"],
       ["/api/custom-models", "ocx models"],
       ["/api/model", "ocx models"],
       ["/api/combos", "ocx combo"],

@@ -73,6 +73,7 @@ Usage:
   ocx combo <sub>             Combo routing strategies and failover
   ocx agent <sub>             Subagents, injection, effort caps, and sidecars
   ocx effort [sub]            Inspect and configure reasoning effort caps and defaults
+  ocx operation <sub>         Configure the model each operation agent runs on
   ocx observe <sub>           Logs, usage, storage, memory, and debug data
   ocx inspect <sub>           Effective config, catalog, analytics, pacing, client-config
   ocx route <sub>             Routing features (combo, policy)

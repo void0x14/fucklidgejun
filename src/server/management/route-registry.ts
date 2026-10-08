@@ -313,6 +313,9 @@ export const MANAGEMENT_ROUTES: readonly ManagementRoute[] = [
   { method: "POST", path: "/api/workflow-budget/clear", module: "server/management/workflow-budget-routes", mutates: true, exempt: { reason: "deferred-verb", why: "Clearing one root is owed the same verb as the read above and for the same reason. It is deliberately not shipped as a verb in this work-phase: the read comes first, because an operator who cannot see which ceiling fired has no basis for deciding to forgive it.", owner: "260915_workflow_budget_window wfc", ownerDoc: "devlog/_plan/260915_workflow_budget_window/030_wfc_diff_plan.md" } },
   // server/management/request-history-routes
   { method: "GET", path: "/api/request-history", module: "server/management/request-history-routes", mutates: false },
+  // server/management/operation-routes
+  { method: "GET", path: "/api/operation-models", module: "server/management/operation-routes", mutates: false },
+  { method: "PUT", path: "/api/operation-models", module: "server/management/operation-routes", mutates: true },
   // server/management/routing-analytics-routes
   // server/management/routing-profile-routes
   { method: "DELETE", path: "/api/routing-profiles", module: "server/management/routing-profile-routes", mutates: true },

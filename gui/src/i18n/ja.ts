@@ -67,6 +67,7 @@ export const ja: Record<TKey, string> = {
   "nav.combos": "コンボ",
   "nav.subagents": "サブエージェント",
 
+  "nav.operation": "Operation",
   // routing intelligence
   "routing.title": "ルーティングインテリジェンス (beta)",
   "routing.subtitle": "ポリシープロファイル、ドライラン評価、ソース連携のルーティング分析。",

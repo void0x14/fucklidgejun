@@ -4,6 +4,7 @@ import Dashboard from "./pages/Dashboard";
 import Providers from "./pages/Providers";
 import Models from "./pages/Models";
 import Subagents from "./pages/Subagents";
+import Operation from "./pages/Operation";
 import Logs from "./pages/Logs";
 import Usage from "./pages/Usage";
 import Storage from "./pages/Storage";
@@ -33,6 +34,7 @@ const PAGE_TKEY: Record<Page, TKey> = {
   providers: "nav.providers",
   models: "nav.models",
   subagents: "nav.subagents",
+  operation: "nav.operation",
   logs: "nav.logs",
   usage: "nav.usage",
   storage: "nav.storage",
@@ -67,6 +69,7 @@ const NAV: NavEntry[] = [
   { id: "providers", tkey: "nav.providers", Icon: IconServer },
   { id: "models", tkey: "nav.models", Icon: IconBoxes },
   { id: "subagents", tkey: "nav.subagents", Icon: IconBot },
+  { id: "operation", tkey: "nav.operation", Icon: IconActivity },
   { id: "logs", tkey: "nav.logs", Icon: IconList },
   { id: "usage", tkey: "nav.usage", Icon: IconActivity },
   { id: "storage", tkey: "nav.storage", Icon: IconHardDrive },
@@ -447,6 +450,7 @@ export default function App() {
                 {page === "providers" && <Providers apiBase={sharedBase} />}
                 {page === "models" && <Models key={sharedBase} apiBase={sharedBase} restartEpoch={codexRestartEpoch} />}
                 {page === "subagents" && <Subagents key={sharedBase} apiBase={sharedBase} />}
+                {page === "operation" && <Operation key={sharedBase} apiBase={sharedBase} />}
                 {page === "logs" && <Logs apiBase={sharedBase} />}
                 {page === "usage" && <Usage apiBase={sharedBase} connected={targets.connected} apiKeyId={targets.apiKeyId} />}
                 {page === "storage" && <Storage apiBase={sharedBase} />}

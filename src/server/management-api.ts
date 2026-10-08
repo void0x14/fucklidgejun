@@ -155,6 +155,17 @@ async function handleWorkflowBudgetRoutesOnDemand(ctx: ManagementContext): Promi
   return handleWorkflowBudgetRoutes(ctx);
 }
 
+/**
+ * Lazy like the Lab and routing-profile handlers, and for the same recorded reason: this file is
+ * mounted for every dashboard request, so a static import would put the operation store and its
+ * config-directory resolution on all of them.
+ */
+async function handleOperationRoutesOnDemand(ctx: ManagementContext): Promise<Response | null> {
+  if (!pathInManagementNamespace(ctx.url.pathname, "/api/operation-models", false)) return null;
+  const { handleOperationRoutes } = await import("./management/operation-routes");
+  return handleOperationRoutes(ctx);
+}
+
 async function handleGrokCouponRoutesOnDemand(ctx: ManagementContext): Promise<Response | null> {
   if (!pathInManagementNamespace(ctx.url.pathname, "/api/grok/reset-coupons", true)) return null;
   const { handleGrokCouponRoutes } = await import("./management/grok-coupon-routes");
@@ -275,6 +286,7 @@ export async function handleManagementAPI(
     ??     (await handleRequestHistoryRoutes(ctx))
     ??     (await handleQuotaResetRoutesOnDemand(ctx))
     ??     (await handleWorkflowBudgetRoutesOnDemand(ctx))
+    ??     (await handleOperationRoutesOnDemand(ctx))
     ??     (await handleGrokCouponRoutesOnDemand(ctx))
     ??     (await handleRoutingAnalyticsRoutes(ctx))
     ??     (await handleRoutingProfileRoutesOnDemand(ctx))

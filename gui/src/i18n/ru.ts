@@ -67,6 +67,7 @@ export const ru: Record<TKey, string> = {
   "nav.combos": "Комбо",
   "nav.subagents": "Подагенты",
 
+  "nav.operation": "Operation",
   // routing intelligence
   "routing.title": "Интеллект маршрутизации (beta)",
   "routing.subtitle": "Политики маршрутизации, пробная оценка и аналитика на основе источников.",
