@@ -1682,6 +1682,7 @@ export const fr: Record<TKey, string> = {
   "integrations.codex.title": "Codex CLI",
   "integrations.codex.body": "Le câblage de Codex est géré par le service proxy. Le démarrage d’opencodex l’applique ; l’arrêt du service rétablit le routage natif.",
   "integrations.codex.openService": "Ouvrir les commandes du service",
+  "integrations.codex.modelsFail": "Impossible de lire ou d'enregistrer la sélection de modèles Codex.",
   "integrations.state.notInstalled": "Non installé",
   "integrations.state.unknown": "Vérification…",
   "integrations.detail.codexRouted": "Les requêtes Codex passent par ce proxy",

@@ -1696,6 +1696,7 @@ export const tr: Record<TKey, string> = {
   "integrations.codex.title": "Codex CLI",
   "integrations.codex.body": "Codex bağlantısı proxy servisine aittir.",
   "integrations.codex.openService": "Servis kontrollerini aç",
+  "integrations.codex.modelsFail": "Codex model seçimi okunamadı veya kaydedilemedi.",
   "integrations.state.notInstalled": "Yüklü değil",
   "integrations.state.unknown": "Kontrol ediliyor…",
   "integrations.detail.codexRouted": "Codex istekleri bu proxy üzerinden geçer",

@@ -1677,6 +1677,7 @@ export const ru: Record<TKey, string> = {
   "integrations.codex.title": "Codex CLI",
   "integrations.codex.body": "Подключением Codex управляет прокси-сервис. При запуске opencodex оно применяется, а при остановке сервиса восстанавливается нативная маршрутизация.",
   "integrations.codex.openService": "Открыть управление сервисом",
+  "integrations.codex.modelsFail": "Не удалось прочитать или сохранить выбор моделей Codex.",
   "integrations.state.notInstalled": "Не установлен",
   "integrations.state.unknown": "Проверка…",
   "integrations.detail.codexRouted": "Запросы Codex идут через этот прокси",

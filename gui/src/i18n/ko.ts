@@ -1200,6 +1200,7 @@ export const ko: Record<TKey, string> = {
   "integrations.codex.title": "Codex CLI",
   "integrations.codex.body": "Codex 연결은 프록시 서비스가 관리합니다. opencodex를 시작하면 적용되고 서비스를 중지하면 기본 라우팅으로 복원됩니다.",
   "integrations.codex.openService": "서비스 제어 열기",
+  "integrations.codex.modelsFail": "Codex 모델 선택을 읽거나 저장할 수 없습니다.",
   "integrations.state.notInstalled": "미설치",
   "integrations.state.unknown": "확인 중",
   "integrations.detail.codexRouted": "Codex 요청이 이 프록시를 지납니다",

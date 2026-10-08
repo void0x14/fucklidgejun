@@ -1164,6 +1164,7 @@ export const de: Record<TKey, string> = {
   "integrations.codex.title": "Codex CLI",
   "integrations.codex.body": "Die Codex-Anbindung wird vom Proxy-Dienst verwaltet. Beim Start von opencodex wird sie angewendet; beim Stoppen des Dienstes wird das native Routing wiederhergestellt.",
   "integrations.codex.openService": "Dienststeuerung öffnen",
+  "integrations.codex.modelsFail": "Die Codex-Modellauswahl konnte nicht gelesen oder gespeichert werden.",
   "integrations.state.notInstalled": "Nicht installiert",
   "integrations.state.unknown": "Wird geprüft…",
   "integrations.detail.codexRouted": "Codex-Anfragen laufen über diesen Proxy",

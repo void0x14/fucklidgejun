@@ -6,6 +6,7 @@ import { INTEGRATION_MARKS } from "../components/integration-marks";
 import ApiKeys from "./ApiKeys";
 import Claude from "./Claude";
 import Grok from "./Grok";
+import CodexModelsPanel from "./integrations/CodexModelsPanel";
 import CursorIntegrationPage from "./integrations/CursorIntegrationPage";
 import IntegrationsOverview from "./integrations/IntegrationsOverview";
 import AsideProfilesPage from "./integrations/AsideProfilesPage";
@@ -194,6 +195,7 @@ export default function Integrations({ apiBase, machineApiBase = apiBase, connec
                 </button>
               </section>
             )}
+            {definition.id === "codex" && <CodexModelsPanel apiBase={apiBase} active={active} />}
             {definition.id === "claude" && <Claude apiBase={apiBase} active={active} />}
             {definition.id === "grok" && <Grok apiBase={apiBase} active={active} />}
             {definition.id === "cursor" && <CursorIntegrationPage apiBase={apiBase} active={active} />}

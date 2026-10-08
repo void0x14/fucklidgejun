@@ -1710,6 +1710,7 @@ export const en = {
   "integrations.codex.title": "Codex CLI",
   "integrations.codex.body": "Codex wiring is owned by the proxy service. Starting opencodex applies it; stopping the service restores native routing.",
   "integrations.codex.openService": "Open service controls",
+  "integrations.codex.modelsFail": "Could not read or save the Codex model selection.",
   "integrations.state.notInstalled": "Not installed",
   "integrations.state.unknown": "Checking…",
   "integrations.detail.codexRouted": "Codex requests go through this proxy",

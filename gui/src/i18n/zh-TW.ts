@@ -2330,6 +2330,7 @@ export const zhTW: Record<TKey, string> = {
   "integrations.codex.title": "Codex CLI",
   "integrations.codex.body": "Codex 連線由代理服務管理。啟動 opencodex 時套用；停止服務時還原原生路由。",
   "integrations.codex.openService": "開啟服務控制",
+  "integrations.codex.modelsFail": "無法讀取或儲存 Codex 模型選擇。",
   "integrations.state.notInstalled": "未安裝",
   "integrations.state.unknown": "檢查中…",
   "integrations.detail.codexRouted": "Codex 請求經由此代理",

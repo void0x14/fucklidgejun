@@ -1607,6 +1607,7 @@ export const ja: Record<TKey, string> = {
   "integrations.codex.title": "Codex CLI",
   "integrations.codex.body": "Codex の接続はプロキシサービスが管理します。opencodex を起動すると適用され、サービスを停止するとネイティブのルーティングに戻ります。",
   "integrations.codex.openService": "サービス制御を開く",
+  "integrations.codex.modelsFail": "Codex のモデル選択を読み書きできませんでした。",
   "integrations.state.notInstalled": "未インストール",
   "integrations.state.unknown": "確認中",
   "integrations.detail.codexRouted": "Codex のリクエストはこのプロキシを経由します",
