@@ -109,6 +109,8 @@ export interface RequestExecutionBudget extends TransientSendBudget {
   readonly logicalRequestId: string;
   readonly policyVersion: string;
   readonly policy: RequestExecutionBudgetPolicy;
+  /** Adds one bounded credential opportunity per declared pool member, once per provider. */
+  includeCredentialPool(provider: string, size: number): void;
   reserveDispatch(intent: DispatchIntent): DispatchDecision;
   /**
    * Sends still available from the base allowance, capped by a layer's own maximum.
@@ -138,6 +140,7 @@ export function createRequestExecutionBudget(
   policy: RequestExecutionBudgetPolicy = CODEX_TEXT_GUARDED_BUDGET_POLICY,
   logicalRequestId?: string,
 ): RequestExecutionBudget {
+  const credentialPools = new Map<string, number>();
   let spent = 0;
   // Reservations whose physical send is reported by a retry helper rather than by the permit.
   // They are already charged; the reporter's first send settles one instead of charging again.
@@ -164,7 +167,20 @@ export function createRequestExecutionBudget(
     },
     logicalRequestId: logicalRequestId ?? `lr-${Date.now().toString(36)}-${(logicalRequestSeq += 1).toString(36)}`,
     policyVersion: REQUEST_BUDGET_POLICY_VERSION,
-    policy,
+    get policy() { return policy; },
+    includeCredentialPool(provider, size): void {
+      if (!Number.isSafeInteger(size) || size < 2) return;
+      const allowance = size - 1;
+      const previous = credentialPools.get(provider) ?? 0;
+      if (allowance <= previous) return;
+      const extra = allowance - previous;
+      credentialPools.set(provider, allowance);
+      policy = { ...policy,
+        maxTotalModelSends: policy.maxTotalModelSends + extra,
+        baseSendAllowance: policy.baseSendAllowance + extra,
+        maxAlternateTargetSends: policy.maxAlternateTargetSends + extra,
+        maxTargetTransitions: policy.maxTargetTransitions + extra };
+    },
     get reserveSpent() { return reserveSpent; },
     get alternateTargetSends() { return alternateTargetSends; },
     get targetTransitions() { return targetTransitions; },

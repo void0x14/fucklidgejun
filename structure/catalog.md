@@ -419,3 +419,29 @@ Exact [model input declarations](config.md#explicit-per-model-capability-declara
 ## Renamed destination reasoning metadata
 
 `src/providers/derive.ts` fills missing reasoning tables for renamed providers accepted by the existing fixed-key destination matcher. Model entries are cloned and explicit user entries (including empty arrays) win. Provider-wide effort defaults fill only when undefined; Command Code unknown models therefore keep the registry's empty picker policy unless overridden. Identity, transport and other capability axes are unchanged. The gathered row drives client exports; this metadata contract does not prove arbitrary gateway routing.
+
+## Sağlayıcı anahtar stratejisi
+
+Sağlayıcı anahtar seçimi ve öğrenilen sonuçlar `src/providers/key-failover.ts` ile
+`src/providers/key-health.ts` tarafından yürütülür. Ayrıntılı sözleşme
+[anahtar kurtarma akışında](transports/responses.md#sağlayıcı-anahtar-kurtarma) açıklanır.
+
+Son HTTP hata yanıtının Türkçe açıklaması ve korunmuş makine alanları [hata sözleşmesinde](transports/responses.md#son-hata-açıklaması) tanımlanır.
+
+## Doğrulanabilir sağlayıcı model kimlikleri
+
+`src/providers/live-models.ts` yönetim arayüzünün canlı liste okumasını mevcut
+`src/codex/catalog/provider-models.ts` keşif motoruna bağlar. Yeni protokol veya
+URL tahminleri eklenmez. Sonuçtaki `verifiedModelIds` yalnızca gerçek keşiften,
+özel tanım ve alias eklenmeden önce alınır. Eski/config satırlar bu alanı üretmez.
+Okuma aynı ayar ve kimlik için birleşir, beş dakika önbellek kullanır; ayar değişimi
+geç gelen sonucun kabulünü engeller. Başarısız anahtarda uygun sonraki havuz
+anahtarı okunur; bu işlem seçili anahtarı değiştirmez. Eski liste veya eşleşen
+resmî hazır liste varsa kaynak açıkça belirtilerek korunur.
+
+`GET /api/model-discovery?catalog=1&provider=...` kaynak ve açıklama döndürür.
+`src/providers/model-id.ts` yalnızca listedeki tek gerçek kimliğe eşleşen yazımı
+düzeltir; yeni model adı üretmez. Özel model oluşturma/değiştirme ve varsayılan
+model PATCH kaydı bu listeye göre doğrulanır. Bilinmeyen kimlik 422 ve gerçek
+öneriler döndürür. Hazır liste bir canlı doğrulama iddiası değildir; listede bulunmak
+hesabın üretim isteğine yetkisi veya sağlayıcının o anda çalıştığının garantisi değildir.

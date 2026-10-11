@@ -643,3 +643,18 @@ The [explicit model-capability contract](config.md#explicit-per-model-capability
 Exact [model input declarations](config.md#explicit-per-model-capability-declarations) now feed text-only eligibility and catalog hints; existing image-description/omission handling consumes them before the main upstream send.
 
 The raw provider editor round-trips `autoReviewModel` and `autoReviewModelOverrides` through editor-owned DTO fields. POST/PATCH/PUT share validation; PUT copies schema-normalized values into the persisted and live candidate before adoption. Canonical `openai` rejects these fields, including clear forms. Field-masked writes (PATCH, editor PUT, reload) pin every registry-seed key and ignore operator overlays the seed never defines, most commonly `selectedModels`; POST keeps the exact-key comparison. Canonical `openai` still rejects `allowPrivateNetwork`, which must not short-circuit destination DNS checks on the ChatGPT forward row. Existing authentication, origin checks and stale-baseline protection still govern the writes. See [reviewer projection](catalog.md#provider-scoped-approval-reviewer).
+
+## Sağlayıcı stratejisi sekmesi
+
+`gui/src/components/provider-workspace/ProviderStrategy.tsx` sağlayıcı başlığında
+bağımsız Strateji sekmesini oluşturur. API-key sağlayıcılarında beş davranış adı
+gösterilir; eski fill-first/quota ayarı varsa görünür kalır. Seçim mevcut sağlayıcı
+PATCH akışında kaydedilir ve kaydın yanıtı alınmadan başarı gösterilmez.
+`src/server/management/oauth-account-routes.ts` anahtar listesine kabul/ret
+sayaçlarını, seçim puanını ve cooldown sonunu ekler; credential özeti dışarı verilmez.
+Sonuçlar sekme açıkken yenilenir; hesap/yerel sağlayıcıya sahte key seçimi sunulmaz.
+
+Son HTTP hata yanıtının Türkçe açıklaması ve korunmuş makine alanları [hata sözleşmesinde](transports/responses.md#son-hata-açıklaması) tanımlanır.
+
+
+Canlı keşif kaynağı, eski/hazır liste ayrımı ve model kaydı doğrulaması [model kimliği sözleşmesinde](catalog.md#doğrulanabilir-sağlayıcı-model-kimlikleri) tanımlanır.

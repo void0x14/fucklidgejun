@@ -27,6 +27,7 @@ import { createAdapterContinuations } from "./adapter-continuation";
 import { deliverAdapterResponse } from "./adapter-delivery";
 import { releaseUpstreamHostAdmission } from "../../codex/upstream-host-health";
 import { releaseCodexAuthContextProbeLease } from "../../codex/auth-context";
+import { humanizeProviderErrorResponse } from "../../providers/failure-guidance";
 
 /** Public Responses entry and compatibility exports. Implementations live with their owners. */
 
@@ -60,7 +61,8 @@ export async function handleResponses(
       // in options and must not start a fresh allowance.
       sendBudget: options.sendBudget ?? createRequestExecutionBudget(),
     });
-    return ownsBudget ? finalizeOwnedTranslatorBudget(response, translatorBudget) : response;
+    const delivered = options.comboAttempt ? response : await humanizeProviderErrorResponse(response);
+    return ownsBudget ? finalizeOwnedTranslatorBudget(delivered, translatorBudget) : delivered;
   } catch (error) {
     if (ownsBudget) translatorBudget.dispose();
     throw error;
@@ -111,7 +113,7 @@ async function handleResponsesInner(
       requestState,
       sidecarState,
     );
-    const sendBudgetState = createResponsesSendBudget(requestContext);
+    const sendBudgetState = createResponsesSendBudget(requestContext, requestState.route);
     if (sendBudgetState instanceof Response) return sendBudgetState;
     if ("passthrough" in transportState.adapter && transportState.adapter.passthrough && !sidecarState.routedCompaction) {
       return await executePassthroughResponse(

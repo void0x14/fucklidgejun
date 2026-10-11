@@ -1,3 +1,4 @@
+import { validateProviderModelId } from "../../providers/live-models";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { shouldInjectApiAuthHeader } from "../../codex/loopback-target";
@@ -200,6 +201,14 @@ export async function handleModelRoutes(ctx: ManagementContext): Promise<Respons
   };
 
   if (url.pathname === "/api/model-discovery" && req.method === "GET") {
+    if (url.searchParams.get("catalog") === "1") {
+      const name = url.searchParams.get("provider")?.trim() ?? "";
+      if (!isValidProviderName(name) || !hasOwnProvider(config.providers, name)) return jsonResponse({ error: "Önce sağlayıcıyı ekle." }, 404);
+      const { discoverLiveModels } = await import("../../providers/live-models");
+      try { return jsonResponse(await discoverLiveModels(config, name, url.searchParams.get("refresh") === "1")); }
+      catch { return jsonResponse({ ok: false, models: [], source: "unavailable",
+        message: "Canlı liste alınamadı. Sağlayıcının API adresini ve anahtarını kontrol et." }); }
+    }
     const providers = Object.fromEntries(Object.entries(config.providers).map(([name, provider]) => [
       name, provider.newModelPolicy ?? "inherit",
     ]));
@@ -744,10 +753,14 @@ export async function handleModelRoutes(ctx: ManagementContext): Promise<Respons
     if (!isPlainRecord(parsedBody)) return jsonResponse({ error: "invalid JSON body" }, 400);
     const body = parsedBody;
     const provider = typeof body.provider === "string" ? body.provider.trim() : "";
-    const modelId = typeof body.modelId === "string" ? body.modelId.trim() : "";
+    let modelId = typeof body.modelId === "string" ? body.modelId.trim() : "";
     if (!provider || !modelId) return jsonResponse({ error: "provider and modelId are required" }, 400);
     if (!isValidProviderName(provider)) return jsonResponse({ error: "invalid provider name" }, 400);
     if (!hasOwnProvider(config.providers, provider)) return jsonResponse({ error: "provider not configured" }, 404);
+    const requestedModelId = modelId;
+    const checkedModel = await validateProviderModelId(config, provider, modelId);
+    if (!checkedModel.modelId) return jsonResponse({ ...checkedModel, code: "unknown_model" }, 422);
+    modelId = checkedModel.modelId;
     const displayName = typeof body.displayName === "string" && body.displayName.trim() ? body.displayName.trim() : undefined;
     if (displayName?.includes("/")) return jsonResponse({ error: "displayName must not contain /" }, 400);
     const contextWindow = typeof body.contextWindow === "number" && body.contextWindow > 0 ? Math.floor(body.contextWindow) : undefined;
@@ -781,7 +794,7 @@ export async function handleModelRoutes(ctx: ManagementContext): Promise<Respons
     config.customModels = [...existing, entry];
     persistConfig(config);
     const catalogRefresh = await convergeCodexCatalog();
-    return jsonResponse({ ...entry, catalogRefresh }, 201);
+    return jsonResponse({ ...entry, requestedModelId, catalogRefresh }, 201);
   }
 
   const customPutMatch = url.pathname.match(/^\/api\/custom-models\/([^/]+)$/);
@@ -797,7 +810,9 @@ export async function handleModelRoutes(ctx: ManagementContext): Promise<Respons
     if (idx === -1) return jsonResponse({ error: "not found" }, 404);
     const cm = { ...list[idx] };
     if (typeof body.modelId === "string" && body.modelId.trim()) {
-      cm.modelId = body.modelId.trim();
+      const checkedModel = await validateProviderModelId(config, cm.provider, body.modelId);
+      if (!checkedModel.modelId) return jsonResponse({ ...checkedModel, code: "unknown_model" }, 422);
+      cm.modelId = checkedModel.modelId;
     }
     if (body.displayName !== undefined) {
       const dn = typeof body.displayName === "string" ? body.displayName.trim() : "";

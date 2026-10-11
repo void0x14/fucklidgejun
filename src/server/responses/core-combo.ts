@@ -122,6 +122,11 @@ export function deriveSendBudgetScope(
   policy: RequestExecutionBudgetPolicy,
 ): RequestExecutionBudget {
   const scope = createRequestExecutionBudget(policy, parent.logicalRequestId);
+  const includeCredentialPool = scope.includeCredentialPool.bind(scope);
+  scope.includeCredentialPool = (provider, size) => {
+    parent.includeCredentialPool(provider, size);
+    includeCredentialPool(provider, size);
+  };
   Object.defineProperty(scope, "used", {
     get: () => parent.used,
     set: (value: number) => { parent.used = value; },

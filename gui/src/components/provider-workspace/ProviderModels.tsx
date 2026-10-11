@@ -9,6 +9,9 @@ import { readJsonOrThrow } from "../../fetch-json";
 import { createBoundedFetch } from "../../bounded-fetch";
 import { catalogRefreshPending, parseCustomModelCreated, parseCustomModelInventory, type CustomModelRecord } from "../../provider-workspace/model-inventory";
 import { encodedModelIdCollides } from "../../../../src/providers/slug-codec";
+import LiveModelPicker from "./LiveModelPicker";
+import { canonicalModelId } from "../../../../src/providers/model-id";
+import type { ProviderUpdatePatch, ProviderUpdateResult } from "./types";
 import ProviderModelChip from "./ProviderModelChip";
 
 type Mutation = {
@@ -16,6 +19,7 @@ type Mutation = {
   outcome: "saved" | "deleted" | "hidden" | "unconfirmed" | "rejected";
   refreshPending: boolean;
   created?: CustomModelRecord;
+  message?: string;
 };
 const CHIP_RENDER_CAP = 300;
 
@@ -34,21 +38,23 @@ type ProviderModelsProps = {
   onRetryModels?: () => void;
   onOpenAccounts?: () => void;
   onOpenModels: () => void;
+  onUpdateProvider?: (name: string, patch: ProviderUpdatePatch) => Promise<ProviderUpdateResult>;
 };
 
 export default function ProviderModels(props: ProviderModelsProps) {
-  return <ProviderModelInventory key={JSON.stringify([props.apiBase, props.item.name])} {...props} />;
+  return <ProviderModelInventory key={JSON.stringify([props.apiBase, props.item.name, props.item.baseUrl, props.item.authMode, props.item.liveModels])} {...props} />;
 }
 
 function ProviderModelInventory({ item, apiBase, availableModels, selectedModels,
   modelRows, modelRevision, modelRowsReady, modelsLoading = false, modelsLoadFailed = false,
-  needsReauth = false, onRetryModels, onOpenAccounts, onOpenModels,
+  needsReauth = false, onRetryModels, onOpenAccounts, onOpenModels, onUpdateProvider,
 }: ProviderModelsProps) {
   const t = useT();
   const [query, setQuery] = useState("");
   // Free-only narrowing for this provider's inventory (#3666), mirroring the Models page.
   const [freeOnly, setFreeOnly] = useState(false);
   const [draft, setDraft] = useState("");
+  const [nativeModels, setNativeModels] = useState<string[]>([]);
   const [ownershipEpoch, setOwnershipEpoch] = useState(0);
   const ownershipKey = JSON.stringify([apiBase, item.name, modelRevision, ownershipEpoch]);
   const [ownership, setOwnership] = useState<{ key: string; rows: CustomModelRecord[] } | null>(null);
@@ -74,7 +80,7 @@ function ProviderModelInventory({ item, apiBase, availableModels, selectedModels
   const selectedSet = new Set(selectedModels);
   // Full raw inputs retain duplicate/collision protection. Native-only DTO ids are not definitions.
   const known = [...availableModels, ...(item.models ?? []), ...customModels.map(row => row.modelId), ...(item.defaultModel ? [item.defaultModel] : [])];
-  const modelId = draft.trim();
+  const modelId = canonicalModelId(draft, item.name, nativeModels) ?? "";
   const duplicate = !!modelId && (known.includes(modelId) || encodedModelIdCollides(modelId, known));
   const visible = rows.filter(row => !row.disabled);
   // Offered only where discovery actually returned per-token prices; a provider that publishes
@@ -181,7 +187,8 @@ function ProviderModelInventory({ item, apiBase, availableModels, selectedModels
         result = { outcome: "saved", created, refreshPending: catalogRefreshPending(body) };
         if (active.current) setDraft("");
       } else if (response.status >= 400 && response.status < 500) {
-        result = { outcome: "rejected", refreshPending: false };
+        const body = await readJsonOrThrow<{ error?: string }>(response).catch(() => null);
+        result = { outcome: "rejected", refreshPending: false, ...(typeof body?.error === "string" ? { message: body.error } : {}) };
       }
     } catch { /* Transport/invalid acknowledgement cannot prove a rollback. */ }
     finally { bounded.clear(); finish(result); }
@@ -239,17 +246,21 @@ function ProviderModelInventory({ item, apiBase, availableModels, selectedModels
       {modelRowsReady && availableModels.length === 0 && visible.length > 0 && (item.models?.length ?? 0) > 0 && !needsReauth &&
         <p className="muted text-label">{t("pws.modelsConfiguredFallback")}</p>}
       {pendingSelection && <p role="status" className="muted">{t("pws.modelSelectionPending")}</p>}
+      <LiveModelPicker item={item} apiBase={apiBase} draft={draft} onPick={setDraft}
+        onCatalog={setNativeModels} onUpdateProvider={onUpdateProvider} />
       <label className="text-label pws-custom-model-label" htmlFor={`pws-custom-model-${item.name}`}>{t("models.customAdd")}</label>
       <div className="row pws-custom-model-row">
         <input id={`pws-custom-model-${item.name}`} className="input" value={draft}
+          onBlur={() => { if (modelId) setDraft(modelId); }}
           onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === "Enter") void addCustomModel(); }}
           placeholder={t("models.customFieldModelIdPlaceholder")} aria-label={t("models.customAdd")} disabled={requestPending} />
         <button type="button" className="btn btn-primary btn-sm" onClick={() => { void addCustomModel(); }}
           disabled={actionsBlocked || !modelId || duplicate}>{requestPending ? t("models.customSaving") : t("models.customAddBtn")}</button>
       </div>
+      {draft.trim() && !modelId && <p className="muted text-label" role="status">{t("pws.discovery.unknown")}</p>}
       {duplicate && <p className="muted text-label" role="status">{t("pws.modelKnown")}</p>}
       {feedback && <p className={mutation?.outcome === "unconfirmed" || mutation?.outcome === "rejected" ? "pws-inline-error" : "muted text-label"}
-        role={mutation?.outcome === "unconfirmed" || mutation?.outcome === "rejected" ? "alert" : "status"}>{feedback}</p>}
+        role={mutation?.outcome === "unconfirmed" || mutation?.outcome === "rejected" ? "alert" : "status"}>{mutation?.message ?? feedback}</p>}
       {savedHidden && refreshFailed && <p className="muted text-label" role="status">{t("pws.modelSavedHidden")}</p>}
       {mutation?.refreshPending && <p className="muted text-label" role="status">{t("codexAuth.catalogRefreshPending")}</p>}
       {(modelsLoadFailed || ownershipError === ownershipKey) ? <div className="pws-inline-error" role="alert">

@@ -69,6 +69,7 @@ export type ApiKeyRow = AccountQuotaReading & {
   label?: string;
   masked: string;
   active: boolean;
+  health?: import("../../../../src/types/provider").ProviderApiKeyHealth & { cooldownUntil?: number | null };
   /**
    * Upstream host this key was DETECTED to authenticate on, when the provider declares more
    * than one official host (MiniMax global vs mainland China). Absent means undetected.
@@ -126,6 +127,7 @@ export interface ProviderAuthHandlers {
 }
 
 export type ProviderUpdatePatch = {
+  apiKeyPoolStrategy?: import("../../../../src/types/provider").ProviderKeyStrategy;
   /** A standalone routing change; the management API rejects combinations with edits. */
   setDefault?: true;
   adapter?: string;

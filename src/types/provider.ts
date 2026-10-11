@@ -1,5 +1,15 @@
 import type { UpstreamHttpVersion, ReasoningSummaryDelivery, CodexAccountMode } from "./wire";
 
+export const PROVIDER_KEY_STRATEGIES = ["failover", "round-robin", "random", "least-used", "reset-window", "fill-first", "quota"] as const;
+export type ProviderKeyStrategy = (typeof PROVIDER_KEY_STRATEGIES)[number];
+export interface ProviderApiKeyHealth {
+  successes: number;
+  failures: number;
+  reliability: number;
+  lastUsedAt: number;
+  lastFailure?: "rate" | "auth" | "balance" | "quota";
+}
+
 /**
  * Per-provider proactive-refresh policy. The guardian only ever touches a provider whose EFFECTIVE
  * policy is "proactive"; "lazy-only" keeps today's on-demand refresh, "disabled" forbids the
@@ -13,6 +23,8 @@ export interface ProviderApiKeySelection {
   entryId?: string;
   reference?: string;
   revision?: string;
+  /** Yalnızca bu istekte reddedilmiş anahtarlar; diske yazılmaz. */
+  failedEntryIds?: string[];
 }
 
 export interface OpenRouterProviderRouting {
@@ -420,15 +432,10 @@ export interface OcxProviderConfig {
     baseUrl?: string;
   }>;
   /**
-   * Optional proactive ordering for `apiKeyPool` when the committed key is already
-   * cooling. Deliberately NOT named like the OAuth `accountPoolStrategy`: an API key
-   * is a different identity from an OAuth account set, and key rotation is a
-   * rate-limit scheduling problem rather than a prompt-cache one.
-   *
-   * Absent means today's behaviour: no pre-dispatch pick at all, only the reactive
-   * 429/401 walk in `key-failover`.
+   * Sağlayıcının anahtar seçimi. Varsayılan failover, yakın sonuçlara göre çalışan
+   * anahtarları öne alır. fill-first ve quota mevcut seçimi sağlıklı olduğu sürece korur.
    */
-  apiKeyPoolStrategy?: "round-robin" | "fill-first" | "quota";
+  apiKeyPoolStrategy?: ProviderKeyStrategy;
   /**
    * Opt-in automatic API-key sourcing. Present = this provider's keys are refreshed
    * from the key-checker service; absent = the provider is never touched. Every field

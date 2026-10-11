@@ -1,3 +1,4 @@
+import { canonicalModelId } from "../../../src/providers/model-id";
 import type { ModelRow } from "../pages/models-shared";
 import type { ProviderModelCounts, ProviderAvailableModels, ProviderSelectedModels, ProviderLiveModelCounts } from "./usage";
 import { parseSelectedModels } from "../model-visibility";
@@ -107,7 +108,10 @@ export function parseCustomModelInventory(value: unknown): CustomModelRecord[] {
 
 export function parseCustomModelCreated(value: unknown, provider: string, modelId: string): CustomModelRecord {
   const row = parseCustomRecord(value);
-  if (row.provider !== provider || row.modelId !== modelId) throw new Error("Unexpected created model");
+  if (row.provider !== provider || (row.modelId !== modelId &&
+    (record(value).requestedModelId !== modelId || canonicalModelId(modelId, provider, [row.modelId]) !== row.modelId))) {
+    throw new Error("Unexpected created model");
+  }
   return row;
 }
 

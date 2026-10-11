@@ -1,4 +1,6 @@
+import { validateProviderModelId, modelDiscoveryIdentity } from "../../providers/live-models";
 import { modelCapabilitiesConfigError, mergeModelCapabilities } from "../../config/provider-validation";
+import { PROVIDER_KEY_STRATEGIES, type ProviderKeyStrategy } from "../../types/provider";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
@@ -360,6 +362,18 @@ function applyProviderPatchFields(
   const next: OcxProviderConfig = { ...provider };
   let touched = false;
   let headersTouched = false;
+
+  if (Object.hasOwn(rawBody, "apiKeyPoolStrategy")) {
+    const strategy = rawBody.apiKeyPoolStrategy;
+    if (typeof strategy !== "string" || !PROVIDER_KEY_STRATEGIES.includes(strategy as ProviderKeyStrategy)) {
+      return { error: "Anahtar stratejisini listeden seç." };
+    }
+    if (next.authMode === "oauth" || next.authMode === "forward" || next.authMode === "local") {
+      return { error: "Anahtar stratejisi yalnızca API anahtarı kullanan sağlayıcılara uygulanır." };
+    }
+    next.apiKeyPoolStrategy = strategy as ProviderKeyStrategy;
+    touched = true;
+  }
 
   if (Object.hasOwn(rawBody, "disabled")) {
     if (typeof rawBody.disabled !== "boolean") return { error: "disabled must be a boolean" };
@@ -1382,8 +1396,8 @@ export async function handleProviderRoutes(ctx: ManagementContext): Promise<Resp
     if ("error" in applied) return jsonResponse({ error: applied.error }, 400);
     const next = applied.next;
 
-    const pacingOnly = keys.every(key => key === "requestPacing");
-    if (applied.editorTouched && !pacingOnly) {
+    const policyOnly = keys.every(key => key === "requestPacing" || key === "apiKeyPoolStrategy");
+    if (applied.editorTouched && !policyOnly) {
       const providerError = canonicalBudgetOnly
         ? canonicalOpenAiBudgetPatchError(next, rawBody, keys, config)
         : providerManagementConfigError(
@@ -1419,6 +1433,15 @@ export async function handleProviderRoutes(ctx: ManagementContext): Promise<Resp
       if (resolvedError) return jsonResponse({ error: resolvedError }, 400);
     }
 
+    let validatedModelIdentity: string | undefined;
+    if (typeof rawBody.defaultModel === "string" && rawBody.defaultModel.trim()) {
+      const candidateConfig = { ...config, providers: { ...config.providers, [name]: next } };
+      const checkedModel = await validateProviderModelId(candidateConfig, name, rawBody.defaultModel);
+      if (!checkedModel.modelId) return jsonResponse({ ...checkedModel, code: "unknown_model" }, 422);
+      rawBody.defaultModel = checkedModel.modelId;
+      validatedModelIdentity = modelDiscoveryIdentity(next);
+    }
+
     // The live config is shared and the destination probe above is awaited. Re-apply the
     // mask onto the newest provider under the mutation lock right before saving, so two
     // concurrent PATCHes updating different fields/headers both survive instead of the
@@ -1430,7 +1453,11 @@ export async function handleProviderRoutes(ctx: ManagementContext): Promise<Resp
         replayError = replay.error;
         return;
       }
-      if (replay.editorTouched && !pacingOnly) {
+      if (validatedModelIdentity && modelDiscoveryIdentity(replay.next) !== validatedModelIdentity) {
+        replayError = "Sağlayıcı ayarı doğrulama sırasında değişti. Modeli yeni ayarla yeniden seç.";
+        return;
+      }
+      if (replay.editorTouched && !policyOnly) {
         const syncError = canonicalBudgetOnly
           ? canonicalOpenAiBudgetPatchError(replay.next, rawBody, keys, config)
           : providerManagementConfigError(
@@ -1478,11 +1505,11 @@ export async function handleProviderRoutes(ctx: ManagementContext): Promise<Resp
     });
     if (replayError !== undefined) return jsonResponse({ error: replayError }, 409);
     reconcileLiveStateStores();
-    if (applied.editorTouched && !pacingOnly) {
+    if (applied.editorTouched && !policyOnly) {
       const { clearModelCache } = await import("../../codex/model-cache");
       clearModelCache(name);
     }
-    const catalogRefresh = pacingOnly ? null : await convergeCodexCatalog();
+    const catalogRefresh = policyOnly ? null : await convergeCodexCatalog();
     return jsonResponse({
       success: true,
       name,

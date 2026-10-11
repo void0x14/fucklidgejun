@@ -485,12 +485,11 @@ export function extractProviderModelItems(
   let data: unknown[];
   let siblings: SiblingIndex | null = null;
   if (Array.isArray(value)) {
-    // Together-style top-level /models arrays. Catalog discovery must not treat a stray
-    // `models` key on openai-chat responses as valid — only `data` envelopes or top-level arrays.
+    // /models endpoints may publish top-level arrays or data/models envelopes.
     if (value.length > limit) return { ok: false, reason: "too_many_models" };
     data = value;
   } else {
-    const envelope = extractModelEnvelopeRows(value, discovery.maxModels, ["data"]);
+    const envelope = extractModelEnvelopeRows(value, discovery.maxModels, ["data", "models"]);
     if (!envelope.ok) return envelope;
     data = envelope.rows;
     siblings = buildSiblingIndex(value, limit);
@@ -499,10 +498,12 @@ export function extractProviderModelItems(
   const items: ProviderModelsApiItem[] = [];
   const seen = new Set<string>();
   for (const raw of data) {
-    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    const row = typeof raw === "string" ? { id: raw } : raw;
+    if (row === null || typeof row !== "object" || Array.isArray(row)) {
       return { ok: false, reason: "invalid_shape" };
     }
-    const id = (raw as { id?: unknown }).id;
+    const record = row as Record<string, unknown>;
+    const id = record.id ?? record.model ?? record.name;
     if (!isValidModelDiscoveryModelId(id)) return { ok: false, reason: "invalid_shape" };
     const prefix = discovery.spec?.stripIdPrefix;
     let finalId = id;
@@ -510,7 +511,7 @@ export function extractProviderModelItems(
       finalId = finalId.slice(prefix.length);
       if (!isValidModelDiscoveryModelId(finalId)) continue;
     }
-    const item = finalId === id ? raw as ProviderModelsApiItem : { ...(raw as ProviderModelsApiItem), id: finalId };
+    const item = { ...record, id: finalId } as ProviderModelsApiItem;
     // Admission is decided on the ORIGINAL `data[]` row, before any sibling
     // enrichment. Merging first let a `models[]` entry supply the very field a
     // provider filter requires — reproduced against the real Chutes policy,

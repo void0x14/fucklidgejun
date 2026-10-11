@@ -93,6 +93,11 @@ export function markModelsFetchFailure(provider: string, now = Date.now()): void
   failureAt.set(provider, now);
 }
 
+/** Açık yeniden keşif talebi bekleme engelini kaldırır; doğrulanmış eski listeyi silmez. */
+export function clearModelDiscoveryFailureCooldown(provider: string): void {
+  failureAt.delete(provider);
+}
+
 /** `liveModelCount` is required so a caller that forgets to pass it fails typecheck instead of
  * silently recording zero and misclassifying the provider as having no live catalog. */
 export function markProviderDiscoveryOk(provider: string, liveModelCount: number): void {

@@ -729,3 +729,40 @@ What must not happen is a ladder that charges and then returns through a path th
 nor releases. That is not a lost send; it is a send the request never made, spending an allowance a
 later recovery in the same request then cannot have. `tests/lib/execution-budget-permits.test.ts`
 pins both ladder shapes against exactly that.
+
+## Sağlayıcı anahtar kurtarma
+
+`src/providers/key-health.ts` anahtarın gerçek HTTP kabul ve anahtara özgü ret
+sonuçlarını tutar. Başarı yanıtın tamamlandığı anlamına gelmez. Yakın sonuçlar
+0,8/0,2 ağırlıkla güncellenir; kimlik/bakiye/kota reddi puanı en çok 0,1 yapar.
+Eski kanıt altı saatlik yarı ömürle nötr puana yaklaşır.
+`key-health.json` yalnızca kimlik özeti, sayaç ve zamanı saklar; en çok 1024 gözlem
+tutulur. Tarihçenin okunması veya yazılması başarısız olursa istek durdurulmaz.
+
+`src/providers/key-failover.ts` varsayılan `failover` için uygun anahtarları bu
+puanla seçer. `random`, `least-used`, `reset-window`, `round-robin`, eski `fill-first`
+ve `quota` değerleri aynı havuza uygulanır. Son iki değer sağlıklı seçili anahtarı
+korur. Bilinmeyen kota bir sıfırlanma zamanı olarak uydurulmaz. İstek yerelinde
+seçilen anahtar aynı seçim revizyonunda doğrulanır; kullanıcı seçimi revizyonu
+değiştirerek bekleyen gönderimi geçersiz kılar.
+
+`src/lib/request-execution-budget.ts` içindeki `includeCredentialPool` her
+bildirilen sağlayıcı havuzu için bir kez `anahtar sayısı - 1` kurtarma hakkı ekler.
+Combo kapsamı aynı ana bütçeyi harcar; sayaç yeni anahtarda sıfırlanmaz. Key havuz
+döngüsünün kendi sınırı, iptal, çıktı başlangıcı ve tekrar güvenliği geçerlidir.
+Native Chat aynı isteğin bütçesine havuzdaki alternatifleri dahil eder.
+Kimlik/kota reddi sağlıklı diğer anahtarda tekrar edilir; istemci isteği hataları
+ve içerik politikası retleri anahtar hatası sayılmaz.
+
+## Son hata açıklaması
+
+`src/providers/failure-guidance.ts` son HTTP hata yanıtında Türkçe neden ve yapılacak
+işi sunar. Durum, makine kodu, tür, parametre ve Retry-After korunur; özgün mesaj
+sırlar temizlenerek `error.details` altında kalır. Combo ara yanıtları dönüştürülmez.
+İçerik politikası, model kimliği, düşünme ayarı, bağlam sınırı, bakiye, kota ve hız
+sınırı ayrı açıklanır. 429 gövdesi kota tükenmesini açıkça bildiriyorsa hız beklemesi
+olarak sınıflandırılmaz. Native Chat son hata açıklamasını aynı kaynaktan alır.
+Akış başladıktan sonraki SSE olayları bu HTTP dönüşümünün kapsamına girmez.
+
+
+Canlı keşif kaynağı, eski/hazır liste ayrımı ve model kaydı doğrulaması [model kimliği sözleşmesinde](../catalog.md#doğrulanabilir-sağlayıcı-model-kimlikleri) tanımlanır.

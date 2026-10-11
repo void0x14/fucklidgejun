@@ -195,3 +195,9 @@ existing explicit confirmation. The journal endpoint evaluates Undo against the 
 Recovery reads commit history and ownership through strict store methods. Unreadable or malformed
 metadata is uncertainty, never evidence that a transaction did not commit. Pending records validate
 complete ownership, exact Cline paths and result fingerprints before either native file is replaced.
+
+## Sağlayıcı anahtar stratejisi
+
+Sağlayıcı anahtar seçimi ve öğrenilen sonuçlar `src/providers/key-failover.ts` ile
+`src/providers/key-health.ts` tarafından yürütülür. Ayrıntılı sözleşme
+[anahtar kurtarma akışında](../transports/responses.md#sağlayıcı-anahtar-kurtarma) açıklanır.

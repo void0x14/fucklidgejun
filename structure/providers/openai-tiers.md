@@ -597,3 +597,4 @@ Two call sites need the rule — the live path in `reevaluateAffinityQuota` and 
 `previewReusableAffinityAccount` that subagent fallback reads — and they share one helper rather
 than restating it, because the suite asserts the two answer identically and a preview that
 disagreed would hand fallback a different account than the request actually uses.
+Canlı keşif kaynağı, eski/hazır liste ayrımı ve model kaydı doğrulaması [model kimliği sözleşmesinde](../catalog.md#doğrulanabilir-sağlayıcı-model-kimlikleri) tanımlanır.
