@@ -64,6 +64,7 @@ import { activateLab, labActivationRequired } from "../lib/lab-activation";
 import { runOpenAiTierStartupMigration } from "../providers/openai-tier-startup";
 import { runAlibabaRegionStartupMigration } from "../providers/alibaba-region-startup";
 import { sweepProviderKeyRegions } from "../providers/region-detect";
+import { refreshDocumentedModelWindows } from "../providers/documented-model-windows";
 import { runModelRenameStartupMigration } from "../providers/model-rename-startup";
 import { runDevinProviderMergeStartupMigration } from "../providers/devin-provider-merge-migration";
 import { isCanonicalOpenAiForwardProvider, OPENAI_CODEX_PROVIDER_ID } from "../providers/openai-tiers";
@@ -811,6 +812,9 @@ export function startServer(port?: number, deps: StartServerDeps = {}): Server<W
   // without ever dispatching a key to the wrong endpoint. Best-effort and after listen, so a slow
   // probe can never delay startup.
   void sweepProviderKeyRegions(config);
+  // Refresh vendor-documented context windows (best-effort, cached with a TTL) so the catalog can
+  // read a real window for vendors that expose none on their API.
+  void refreshDocumentedModelWindows();
 
   console.log(`🚀 opencodex proxy running on http://localhost:${actualPort}`);
   console.log(`   POST /v1/responses → provider translation`);

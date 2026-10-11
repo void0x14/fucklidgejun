@@ -45,6 +45,7 @@ import type { FastPolicyAuthority } from "../../providers/fastwire";
 import { effectiveGoogleMode, getProviderRegistryEntry, providerMatchesRegistryTransport, registryEntryForProviderDestination } from "../../providers/registry";
 import { parseAntigravityAvailableModels, registerAntigravityDiscoveredWireModels } from "../../providers/antigravity-models";
 import { applyProviderContextCap, providerContextCap, resolveUnknownRoutedContextWindow } from "../../providers/context-cap";
+import { DOCUMENTED_WINDOW_SOURCES, documentedWindowsSync } from "../../providers/documented-model-windows";
 import { clampAutoCompactTokenLimit } from "../../providers/auto-compact-budget";
 import { effectiveModelAliases } from "../../providers/default-aliases";
 import { routedSlug, slugEquals, slugEquivalenceKey, slugsEquivalent } from "../../providers/slug-codec";
@@ -531,7 +532,13 @@ async function gatherRoutedModelsUncached(
       const configuredWindow = rawProvider?.modelContextWindows?.[id];
       if (typeof configuredWindow === "number" && configuredWindow > 0) return configuredWindow;
       const registryWindow = registryContextWindows?.[id];
-      return typeof registryWindow === "number" && registryWindow > 0 ? registryWindow : undefined;
+      if (typeof registryWindow === "number" && registryWindow > 0) return registryWindow;
+      // Last source: the vendor's own documentation, fetched at runtime. This is the same value
+      // the provider row resolves, so a custom row cannot fall behind it.
+      const documentedWindow = DOCUMENTED_WINDOW_SOURCES[cm.provider]
+        ? documentedWindowsSync(cm.provider)[id]
+        : undefined;
+      return typeof documentedWindow === "number" && documentedWindow > 0 ? documentedWindow : undefined;
     };
     const customIdCandidates = (() => {
       const slash = cm.modelId.indexOf("/");

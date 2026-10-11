@@ -371,7 +371,6 @@ describe("provider registry parity", () => {
       expect(entry?.baseUrl).toBe(providerId === "minimax" ? "https://api.minimax.io/v1" : "https://api.minimaxi.com/v1");
       expect(entry?.defaultModel).toBe("MiniMax-M3");
       expect(entry?.models).toEqual(minimaxModels);
-      expect(entry?.modelContextWindows?.["MiniMax-M3"]).toBe(1_000_000);
       expect(entry?.modelReasoningEfforts?.["MiniMax-M3"]).toEqual(["low", "medium", "high", "xhigh", "max"]);
       expect(entry?.modelDefaultReasoningEfforts?.["MiniMax-M3"]).toBe("medium");
       expect(entry?.modelReasoningEffortMap?.["MiniMax-M3"]).toMatchObject({ low: "disabled", medium: "adaptive", high: "adaptive" });
@@ -382,17 +381,17 @@ describe("provider registry parity", () => {
       // members. A sibling that is listed for effort but missing from thinkingToggleModels
       // makes the adapter send the thinking value as reasoning_effort, which MiniMax 400s.
       expect(entry?.thinkingToggleModels).toEqual(["MiniMax-M3", "MiniMax-M3.1-Flash-Preview"]);
-      // Flash-Preview is the same M3 generation: same 1M window, same effort ladder.
-      expect(entry?.modelContextWindows?.["MiniMax-M3.1-Flash-Preview"]).toBe(1_000_000);
       for (const modelId of ["MiniMax-M3", "MiniMax-M3.1-Flash-Preview"]) {
         expect(entry?.modelReasoningEfforts?.[modelId]).toEqual(["low", "medium", "high", "xhigh", "max"]);
         expect(entry?.modelDefaultReasoningEfforts?.[modelId]).toBe("medium");
         expect(entry?.modelReasoningEffortMap?.[modelId]).toMatchObject({ low: "disabled", medium: "adaptive" });
         expect(entry?.thinkingToggleModels).toContain(modelId);
       }
-      for (const modelId of minimaxModels.slice(2)) {
-        expect(entry?.modelContextWindows?.[modelId]).toBe(204_800);
-      }
+      // Context windows are NOT carried in the registry: MiniMax exposes none on its API and the
+      // value is fetched from the vendor's own documentation at runtime
+      // (src/providers/documented-model-windows.ts). A registry window here would be exactly the
+      // hardcoded number this test exists to prevent.
+      expect(entry?.modelContextWindows).toBeUndefined();
     }
   });
 

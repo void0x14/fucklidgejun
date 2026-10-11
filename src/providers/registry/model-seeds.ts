@@ -121,10 +121,6 @@ export const MINIMAX_MODELS = [
   "MiniMax-M2.1", "MiniMax-M2.1-highspeed",
   "MiniMax-M2",
 ];
-export const MINIMAX_MODEL_CONTEXT_WINDOWS: Record<string, number> = Object.fromEntries(
-  // The whole M3 family (M3 and MiniMax-M3.1-Flash-Preview) carries the 1M window; M2.x is 204.8k.
-  MINIMAX_MODELS.map(id => [id, id.startsWith("MiniMax-M3") ? 1_000_000 : 204_800]),
-);
 export const MINIMAX_M3_REASONING_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 /**
  * MiniMax M3-family models. They share the 1M window, the effort ladder, the effort→thinking

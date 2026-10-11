@@ -1,5 +1,6 @@
 import type { CodexAccountMode, OcxProviderConfig } from "../types";
 import { cloneFastWire } from "./fastwire";
+import { DOCUMENTED_WINDOW_SOURCES, documentedWindowsSync } from "./documented-model-windows";
 import {
   PROVIDER_REGISTRY,
   registryEntryForProviderDestination,
@@ -499,6 +500,15 @@ export function enrichProviderFromRegistry(name: string, prov: OcxProviderConfig
   if (prov.liveModels === undefined && seed.liveModels !== undefined) prov.liveModels = seed.liveModels;
   if (prov.contextWindow === undefined && seed.contextWindow !== undefined) prov.contextWindow = seed.contextWindow;
   if (!prov.modelContextWindows && seed.modelContextWindows) prov.modelContextWindows = { ...seed.modelContextWindows };
+  // Context windows are data, not constants. Vendors that expose no window on their API publish
+  // it in their documentation; that table is fetched at runtime and fills anything the operator
+  // has not set. The operator's own value wins per model, so this only adds missing entries.
+  if (DOCUMENTED_WINDOW_SOURCES[name]) {
+    const documented = documentedWindowsSync(name);
+    if (Object.keys(documented).length > 0) {
+      prov.modelContextWindows = { ...documented, ...prov.modelContextWindows };
+    }
+  }
   // Per-model fill, not all-or-nothing: an operator who renamed ONE model must still receive
   // labels for the rest, and an existing install must pick up newly seeded rows on enrich.
   if (seed.modelDisplayNames) {
