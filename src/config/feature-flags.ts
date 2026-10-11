@@ -28,15 +28,16 @@ export const CATALOG_AUTO_REFRESH_DEFAULT_INTERVAL_MS: number = 60 * 60_000;
 export const CATALOG_AUTO_REFRESH_MIN_INTERVAL_MS: number = 15 * 60_000;
 
 /**
- * Opt-in master switch, read with the house `=== true` idiom so an absent key and a
- * malformed one both mean off. Pure on purpose: the scheduler calls this from a
- * dynamically imported context, so it takes an explicit config slice and reads nothing
- * global.
+ * Master switch. Defaults ON: a provider release, a vendor-documented context window, or a key
+ * change must reach Codex without the operator restarting the proxy. An explicit
+ * `enabled: false` still disables it, and a malformed section is treated as absent (i.e. on).
+ * Pure on purpose: the scheduler calls this from a dynamically imported context, so it takes an
+ * explicit config slice and reads nothing global.
  */
 export function isCatalogAutoRefreshEnabled(
   config: Pick<OcxConfig, "catalogAutoRefresh">,
 ): boolean {
-  return config.catalogAutoRefresh?.enabled === true;
+  return config.catalogAutoRefresh?.enabled !== false;
 }
 
 /**

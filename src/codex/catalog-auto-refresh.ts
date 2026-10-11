@@ -83,6 +83,14 @@ async function tick(): Promise<void> {
     // callee at all. Only while this tick still owns the timer.
     restartIfCadenceChanged(configured);
     tickCount += 1;
+    // Refresh vendor-documented context windows before converging, so a window that changed
+    // upstream reaches Codex on this tick instead of waiting for a proxy restart.
+    try {
+      const { refreshDocumentedModelWindows } = await import("../providers/documented-model-windows");
+      await refreshDocumentedModelWindows();
+    } catch {
+      // A documentation fetch is best-effort; the converge below still runs.
+    }
     const [{ createManagementConvergeCodex }, { createCatalogConvergeRequest }] = await Promise.all([
       import("./management-convergence"),
       import("./catalog-admission"),
