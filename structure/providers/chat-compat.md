@@ -24,6 +24,18 @@ Shared parsing and streaming follow the [request-copy](../transports/byte-accoun
 
 ## Reasoning and tool-result compatibility
 
+### MiniMax model-specific reasoning
+
+The canonical `minimax` and `minimax-cn` presets derive their reasoning fields from one
+`MINIMAX_REASONING_CONFIG` in `src/providers/registry/model-seeds.ts`. M3 maps low effort
+to disabled thinking and uses `reasoning_details`; M3.1 sends the selected low-through-max
+effort directly and uses `reasoning_content`, including tool-history replay. M3.1 presets
+default to max while explicit existing defaults are retained. Caller none is forwarded
+as none for the provider to reject, not silently raised to a supported rung.
+
+Catalog enrichment and routing share the [per-model metadata repair](../runtime.md#per-model-reasoning-metadata).
+The adapter needs no MiniMax-specific branch or additional upstream retry.
+
 Kiro groups only consecutive original-message tool results whose raw call ID exactly matches
 the originating call. Its wire-ID map retains the original ID privately so replacement or
 truncation collisions cannot join unrelated results. Every non-tool message ends the group,

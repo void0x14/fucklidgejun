@@ -37,9 +37,7 @@ import {
   ZAI_GLM_53_REASONING_EFFORTS,
   ZAI_GLM_5X_REASONING_EFFORTS,
   MINIMAX_MODELS,
-  MINIMAX_M3_REASONING_EFFORTS,
-  MINIMAX_M3_FAMILY,
-  MINIMAX_M3_REASONING_EFFORT_MAP,
+  MINIMAX_REASONING_CONFIG,
   THINKING_TOGGLE_EFFORTS,
   THINKING_TOGGLE_MAP,
   ZHIPU_BIGMODEL_MODELS,
@@ -850,37 +848,30 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     id: "minimax", label: "MiniMax — Coding Plan", baseUrl: MINIMAX_INTL_BASE_URL, adapter: "openai-chat", authKind: "key",
     allowBaseUrlOverride: true, baseUrlChoices: MINIMAX_BASE_URL_CHOICES,
     dashboardUrl: "https://platform.minimax.io", defaultModel: "MiniMax-M3", models: MINIMAX_MODELS,
-    modelReasoningEfforts: Object.fromEntries(MINIMAX_M3_FAMILY.map(id => [id, MINIMAX_M3_REASONING_EFFORTS])),
-    modelDefaultReasoningEfforts: Object.fromEntries(MINIMAX_M3_FAMILY.map(id => [id, "medium"])),
-    modelReasoningEffortMap: Object.fromEntries(MINIMAX_M3_FAMILY.map(id => [id, MINIMAX_M3_REASONING_EFFORT_MAP])),
+    ...MINIMAX_REASONING_CONFIG,
     preserveReasoningContentModels: MINIMAX_MODELS,
-    // MiniMax-M3 low effort maps to thinking disabled, so a legitimate tool
+    // MiniMax-M3 (not M3.1) low effort maps to thinking disabled, so a legitimate tool
     // round can carry no reasoning at all; only replay real recorded text,
     // never a fabricated placeholder (chatgpt-codex-connector P2 on #1205).
     requiresReasoningPlaceholderModels: [],
     reasoningSplitModels: MINIMAX_MODELS,
-    // With reasoning_split the upstream returns thinking as a structured
+    // M3 with reasoning_split returns thinking as a structured
     // reasoning_details array (cumulative text snapshots per stream chunk) and
     // requires that array back verbatim on the next turn — a reasoning_content
     // string replay is the native-format pass-back the docs say is unsupported.
     // Evidence: platform.minimax.io/docs/guides/text-m3-function-call and
     // /docs/api-reference/text-openai-api (verified 2026-09-01).
-    reasoningDetailsModels: MINIMAX_MODELS,
-    thinkingToggleModels: [...MINIMAX_M3_FAMILY],
+    // M3.1 uses reasoning_content instead; see the shared per-model contract above.
     jawcodeBundle: "minimax", metadataModelIdNormalize: "case-insensitive", note: "Subscription Key or API Key",
   },
   {
     id: "minimax-cn", label: "MiniMax — Coding Plan (CN)", baseUrl: MINIMAX_CN_BASE_URL, adapter: "openai-chat", authKind: "key",
     allowBaseUrlOverride: true, baseUrlChoices: MINIMAX_BASE_URL_CHOICES,
     dashboardUrl: "https://platform.minimaxi.com", defaultModel: "MiniMax-M3", models: MINIMAX_MODELS,
-    modelReasoningEfforts: Object.fromEntries(MINIMAX_M3_FAMILY.map(id => [id, MINIMAX_M3_REASONING_EFFORTS])),
-    modelDefaultReasoningEfforts: Object.fromEntries(MINIMAX_M3_FAMILY.map(id => [id, "medium"])),
-    modelReasoningEffortMap: Object.fromEntries(MINIMAX_M3_FAMILY.map(id => [id, MINIMAX_M3_REASONING_EFFORT_MAP])),
+    ...MINIMAX_REASONING_CONFIG,
     preserveReasoningContentModels: MINIMAX_MODELS,
     requiresReasoningPlaceholderModels: [],
     reasoningSplitModels: MINIMAX_MODELS,
-    reasoningDetailsModels: MINIMAX_MODELS,
-    thinkingToggleModels: [...MINIMAX_M3_FAMILY],
     jawcodeBundle: "minimax", metadataModelIdNormalize: "case-insensitive", note: "中国区 Subscription Key",
   },
   {

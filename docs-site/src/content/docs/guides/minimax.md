@@ -10,6 +10,32 @@ the protocol boundary it actually exposes:
 - **MiniMax CLI** (`mmx`) is a multimodal platform CLI. Only its `text` resource speaks
   the Anthropic-compatible API that OpenCodex can route.
 
+## MiniMax model reasoning
+
+The `minimax` and `minimax-cn` presets share model metadata, but M3 and M3.1 have different
+wire contracts. This applies to both single-model requests and combo targets:
+
+| Model | Effort sent upstream | Tool-history reasoning |
+| --- | --- | --- |
+| `MiniMax-M3` | Existing toggle: `low` disables thinking; `medium` through `max` enable adaptive thinking. | `reasoning_details` |
+| `MiniMax-M3.1-Flash-Preview` | Direct `reasoning_effort`: `low`, `medium`, `high`, `xhigh`, or `max`. `low` keeps thinking enabled. | `reasoning_content` |
+
+New M3.1 presets default to `max`, matching MiniMax's documented default. Existing explicit
+defaults remain unchanged. OpenCodex repairs only the exact obsolete generated M3.1 effort
+map and model lists during catalog enrichment and routing; other custom settings remain
+authoritative. Missing model defaults and maps are filled per model, so customizing one model
+does not suppress metadata for its siblings.
+
+M3.1 always thinks. An explicit `none` or translated `thinking.type=disabled` request is sent
+as `reasoning_effort=none` for MiniMax to reject; OpenCodex does not silently raise it to a
+different effort. A combo default of **Inherit client / provider** is different: it leaves
+the client's effort or provider default in effect and does not disable thinking.
+
+In the dashboard, open **Logs**, select the request, and compare the requested effort,
+effective effort, wire field, resolved model, and upstream error. This distinguishes an
+actual provider rejection from a proxy mapping that changed your setting. See the
+[MiniMax OpenAI API contract](https://platform.minimax.io/docs/api-reference/text-openai-api).
+
 ## MiniMax Code
 
 Install and sign in to MiniMax Code using MiniMax's instructions first. Then start

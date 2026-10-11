@@ -21,7 +21,7 @@ import {
   registryModelServiceTierCapabilityApplies,
 } from "./providers/registry";
 import { resolvePoolEntryEndpoint } from "./providers/api-key-endpoint";
-import { applyDirectReasoningEffortContracts, hasLegacyClinePassReasoningEfforts } from "./providers/derive";
+import { applyDirectReasoningEffortContracts, hasLegacyClinePassReasoningEfforts, mergeModelReasoningEffortMaps, repairLegacyMiniMaxReasoning } from "./providers/derive";
 import { cloneFastWire } from "./providers/fastwire";
 import {
   providerMatchesRegistryTransportWithStaticGuards,
@@ -147,17 +147,6 @@ function mergeRecord(
 ): Record<string, string> | undefined {
   if (!seed && !user) return undefined;
   return { ...(seed ?? {}), ...(user ?? {}) };
-}
-
-function mergeNestedRecord(
-  seed: Record<string, Record<string, string>> | undefined,
-  user: Record<string, Record<string, string>> | undefined,
-): Record<string, Record<string, string>> | undefined {
-  if (!seed && !user) return undefined;
-  const out: Record<string, Record<string, string>> = {};
-  for (const [key, value] of Object.entries(seed ?? {})) out[key] = { ...value };
-  for (const [key, value] of Object.entries(user ?? {})) out[key] = { ...(out[key] ?? {}), ...value };
-  return out;
 }
 
 function mergeStringArray(
@@ -306,6 +295,7 @@ export function routedProviderConfig(providerName: string, provider: OcxProvider
     assertProviderDestinationAllowed(providerName, provider);
     return { ...provider, apiKey: usableResolvedApiKey(provider.apiKey) };
   }
+  repairLegacyMiniMaxReasoning(registryEntry, provider);
   const resolvedApiKey = usableResolvedApiKey(provider.apiKey);
   const staticModelCatalog = !providerSupportsLiveModelDiscovery(providerName, provider);
   const repairLegacyMimoFreeAuth = providerName === "mimo-free"
@@ -320,7 +310,7 @@ export function routedProviderConfig(providerName: string, provider: OcxProvider
         ? registryEntry.authKind
         : provider.authMode === "forward" ? undefined : provider.authMode;
   const reasoningEffortMap = mergeRecord(registryEntry.reasoningEffortMap, provider.reasoningEffortMap);
-  const modelReasoningEffortMap = mergeNestedRecord(registryEntry.modelReasoningEffortMap, provider.modelReasoningEffortMap);
+  const modelReasoningEffortMap = mergeModelReasoningEffortMaps(registryEntry.modelReasoningEffortMap, provider.modelReasoningEffortMap);
   const modelReasoningEfforts = mergeStringArrayRecord(registryEntry.modelReasoningEfforts, provider.modelReasoningEfforts);
   const modelDefaultReasoningEfforts = mergeRecordFill(registryEntry.modelDefaultReasoningEfforts, provider.modelDefaultReasoningEfforts);
   const modelContextWindows = providerName === OPENAI_API_PROVIDER_ID

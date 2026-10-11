@@ -1,5 +1,9 @@
 # Subagents And Multi-Agent Surface
 
+Provider effort defaults and maps are filled per model through the shared
+[reasoning metadata contract](runtime.md#per-model-reasoning-metadata). A customization
+for one model does not suppress defaults or maps for a sibling used by a subagent.
+
 Encrypted-task and fallback request handling follow the Responses
 [core module ownership](transports/responses.md#core-module-ownership). This surface retains its existing behavior.
 

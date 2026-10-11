@@ -19,6 +19,10 @@ async function readJsonBody<T>(res: Response): Promise<T | undefined> {
 
 function errorMessageFromBody(errBody: { error?: unknown; message?: unknown }, fallback: string): string {
   if (typeof errBody.error === "string" && errBody.error) return errBody.error;
+  if (errBody.error && typeof errBody.error === "object" && !Array.isArray(errBody.error)) {
+    const message = (errBody.error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message;
+  }
   // Some management routes (e.g. Grok apply orphan repair) put the actionable
   // copy in `message` rather than `error`.
   if (typeof errBody.message === "string" && errBody.message) return errBody.message;

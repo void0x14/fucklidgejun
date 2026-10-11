@@ -7,6 +7,10 @@ Shared parsing and streaming follow the [request-copy](transports/byte-accountin
 
 ## Product boundary
 
+Operation model editing in `gui/src/pages/Operation.tsx` requires a successfully loaded
+snapshot before saving, retains stored selectors missing from the catalog and bounds
+reads/writes. The shared `gui/src/fetch-json.ts` surfaces nested management error messages.
+
 opencodex is a local proxy for Codex. It does not patch Codex binaries. It changes local Codex
 state by writing root routing keys and a model catalog — a provider table only in the
 API-auth-header form described in [`config.md`](config.md) —

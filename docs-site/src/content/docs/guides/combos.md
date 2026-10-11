@@ -267,6 +267,12 @@ A combo can also advance after an intact HTTP 400 `invalid_request_error` that s
 
 The default-injection step preserves existing effort and other reasoning fields. Capability normalization can separately remove unsupported effort/thinking controls as described below. Supported defaults are `low`, `medium`, `high`, `xhigh`, `max`, and `ultra`; omit the field or use `null` to disable default injection.
 
+The dashboard labels `null` **Inherit client / provider**. This does not disable thinking:
+the client's effort remains authoritative unless an operator pin or cap applies; when no
+effort is supplied, the concrete provider/model default applies. Each target then uses its
+own wire contract; for example, MiniMax M3.1 sends `low` as `reasoning_effort=low`, not as
+disabled thinking. See [MiniMax model reasoning](/guides/minimax/#minimax-model-reasoning).
+
 
 ### Mixed-capability groups (`reasoningEffortMode`)
 
