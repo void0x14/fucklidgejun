@@ -116,6 +116,7 @@ import {
   rotateProviderTransportOnKeyFailure,
 } from "../../providers/key-failover";
 import { classifyKeyScopedResponse, keyScopedRecoveryKind } from "../../providers/key-failure-class";
+import { noteApiKeyOutcome } from "../../providers/key-health";
 import type { AttemptRecoveryKind } from "../../usage/log";
 import { resolveWireProtocolOverride } from "../adapter-resolve";
 import { refreshPoolForwardAuth, refreshNativeMainForwardAuth, withClaudeNativeSession } from "./core-auth";
@@ -1171,6 +1172,7 @@ export async function preparePassthroughExchange(
     while (
       upstreamResponse.status === 429
       && rateLimitPolicy !== null
+      && ((route.provider.apiKeyPoolStrategy ?? "failover") !== "failover" || !hasKeyPoolFailover(route.provider))
       && rateLimitRetries < rateLimitPolicy.attempts
       // Checked here rather than inside the helper: prepareSameTarget429Wait releases the 429
       // body, so a refusal discovered after the wait can no longer return the real rate-limit
@@ -1274,6 +1276,7 @@ export async function preparePassthroughExchange(
       }
     }
 
+    if (upstreamResponse.ok) noteApiKeyOutcome(route.providerName, route.provider);
     const captureAffinityResponse = (
       response: Response,
       captureAuthCtx: CodexAuthContext = admissionState.authCtx,

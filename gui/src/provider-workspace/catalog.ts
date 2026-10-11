@@ -28,6 +28,7 @@
  * The provider name is the Record key, not a field here.
  */
 export interface WorkspaceProvider {
+  apiKeyPoolStrategy?: import("../../../src/types/provider").ProviderKeyStrategy;
   adapter: string;
   baseUrl: string;
   hasApiKey?: boolean;

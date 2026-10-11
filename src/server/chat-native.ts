@@ -41,6 +41,7 @@ import {
   transientRetryPolicyFor,
 } from "../providers/key-failover";
 import { classifyKeyScopedResponse, keyScopedRecoveryKind } from "../providers/key-failure-class";
+import { noteApiKeyOutcome } from "../providers/key-health";
 import { fastPolicyForModel } from "../providers/service-tier";
 import { providerApiKeySelectionIsCurrent, resolveCurrentProviderApiKeyTransport } from "../providers/api-key-selection";
 import { enrichOpenCodeZenFreeTierMessage } from "../providers/opencode-zen-rate-limit";
@@ -294,9 +295,12 @@ export async function handleNativeChatCompletions(options: HandleNativeChatOptio
   // One inbound request owns one transient send allowance. Capture the policy before any
   // key rotation so recovery cannot replace the ceiling along with the active credential.
   const requestTransientPolicy = transientRetryPolicyFor(activeProvider);
+  const requestSendCeiling = requestTransientPolicy
+    ? requestTransientPolicy.attempts + Math.max(0, (activeProvider.apiKeyPool?.length ?? 1) - 1)
+    : Number.POSITIVE_INFINITY;
   let transientSendsUsed = 0;
   const remainingTransientSends = (): number => requestTransientPolicy
-    ? Math.max(0, requestTransientPolicy.attempts - transientSendsUsed)
+    ? Math.max(0, requestSendCeiling - transientSendsUsed)
     : Number.POSITIVE_INFINITY;
   const transientSendAvailable = (): boolean => remainingTransientSends() > 0;
 
@@ -361,7 +365,7 @@ export async function handleNativeChatCompletions(options: HandleNativeChatOptio
           label: safeHostLabel(request.url),
           ...(requestTransientPolicy
             ? {
-              attempts: remaining,
+              attempts: Math.min(requestTransientPolicy.attempts, remaining),
               onSendsConsumed: (sends: number) => { transientSendsUsed += Math.max(0, sends); },
             }
             : {}),
@@ -380,6 +384,7 @@ export async function handleNativeChatCompletions(options: HandleNativeChatOptio
     while (
       response.status === 429
       && retryPolicy
+      && ((activeProvider.apiKeyPoolStrategy ?? "failover") !== "failover" || !hasKeyPoolFailover(activeProvider))
       && retries < retryPolicy.attempts
       && transientSendAvailable()
     ) {
@@ -432,6 +437,7 @@ export async function handleNativeChatCompletions(options: HandleNativeChatOptio
   }
   releaseRetainedRequest();
 
+  if (response.ok) noteApiKeyOutcome(route.providerName, activeProvider);
   if (!response.ok) {
     let bodyText = "";
     try {

@@ -16,6 +16,7 @@ import ProviderOverview from "./ProviderOverview";
 import type { CatalogPreset } from "../provider-catalog/provider-presets";
 import type { ModelRow } from "../../pages/models-shared";
 import ProviderModels from "./ProviderModels";
+import ProviderStrategy from "./ProviderStrategy";
 import ProviderUsage from "./ProviderUsage";
 import ProviderAuthPanel from "./ProviderAuthPanel";
 import type { CodexAccountPoolController } from "../../hooks/useCodexAccountPool";
@@ -24,7 +25,7 @@ import { UnsavedLeaveDialog } from "./ProviderDialogs";
 import type { ProviderQuotaReportView } from "../../provider-workspace/report";
 import type { AccountLoadState, ProviderModelUsageRow, ProviderUsageTotals, OAuthAccountRow, ApiKeyRow, KeyRegionEndpoint, LoginHint, ProviderAuthHandlers, ProviderUpdatePatch, ProviderUpdateResult } from "./types";
 
-type Tab = "overview" | "models" | "usage" | "accounts" | "settings";
+type Tab = "overview" | "models" | "usage" | "accounts" | "strategy" | "settings";
 
 export default function ProviderDetails({
   item,
@@ -143,6 +144,7 @@ export default function ProviderDetails({
     { id: "models", label: t("pws.tab.models") },
     { id: "usage", label: t("pws.tab.usage") },
     ...(authSurface ? [{ id: "accounts" as const, label: authSurface === "api-keys" ? t("pws.apiKeys") : t("pws.tab.accounts") }] : []),
+    { id: "strategy", label: t("pws.tab.strategy") },
     { id: "settings", label: t("pws.tab.settings") },
   ], [authSurface, t]);
 
@@ -323,6 +325,9 @@ export default function ProviderDetails({
             onOpenAccounts={authSurface ? () => switchTab("accounts") : undefined}
           />
         )}
+        {tab === "strategy" && <ProviderStrategy key={JSON.stringify([item.name, item.apiKeyPoolStrategy])}
+          item={item} apiBase={apiBase} supported={authSurface === "api-keys"}
+          onUpdateProvider={onUpdateProvider} />}
         {tab === "usage" && (
           <ProviderUsage
             item={item}

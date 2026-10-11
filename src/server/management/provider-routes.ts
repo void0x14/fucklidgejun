@@ -1,4 +1,5 @@
 import { modelCapabilitiesConfigError, mergeModelCapabilities } from "../../config/provider-validation";
+import { PROVIDER_KEY_STRATEGIES, type ProviderKeyStrategy } from "../../types/provider";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
@@ -360,6 +361,18 @@ function applyProviderPatchFields(
   const next: OcxProviderConfig = { ...provider };
   let touched = false;
   let headersTouched = false;
+
+  if (Object.hasOwn(rawBody, "apiKeyPoolStrategy")) {
+    const strategy = rawBody.apiKeyPoolStrategy;
+    if (typeof strategy !== "string" || !PROVIDER_KEY_STRATEGIES.includes(strategy as ProviderKeyStrategy)) {
+      return { error: "Anahtar stratejisini listeden seç." };
+    }
+    if (next.authMode === "oauth" || next.authMode === "forward" || next.authMode === "local") {
+      return { error: "Anahtar stratejisi yalnızca API anahtarı kullanan sağlayıcılara uygulanır." };
+    }
+    next.apiKeyPoolStrategy = strategy as ProviderKeyStrategy;
+    touched = true;
+  }
 
   if (Object.hasOwn(rawBody, "disabled")) {
     if (typeof rawBody.disabled !== "boolean") return { error: "disabled must be a boolean" };

@@ -155,3 +155,9 @@ The [explicit model-capability contract](../config.md#explicit-per-model-capabil
 Exact [model input declarations](../config.md#explicit-per-model-capability-declarations) now feed text-only eligibility and catalog hints; existing image-description/omission handling consumes them before the main upstream send.
 
 Provider-scoped approval reviewer settings are projected by the [catalog owner](../catalog.md#provider-scoped-approval-reviewer); this surface retains its existing routing, transport and account-selection behavior.
+
+## Sağlayıcı anahtar stratejisi
+
+Sağlayıcı anahtar seçimi ve öğrenilen sonuçlar `src/providers/key-failover.ts` ile
+`src/providers/key-health.ts` tarafından yürütülür. Ayrıntılı sözleşme
+[anahtar kurtarma akışında](../transports/responses.md#sağlayıcı-anahtar-kurtarma) açıklanır.

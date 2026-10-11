@@ -28,7 +28,7 @@ export function providerApiKeySelectionMatches(
   if (provider.apiKeySelectionRevision !== expected.revision) return false;
   const current = captureProviderApiKeySelection(provider);
   if (current.entryId === expected.entryId && current.reference === expected.reference) return true;
-  return provider.apiKeyPoolStrategy === "round-robin"
+  return ["failover", "round-robin", "random", "least-used", "reset-window"].includes(provider.apiKeyPoolStrategy ?? "failover")
     && expected.entryId !== undefined
     && expected.reference !== undefined
     && (provider.apiKeyPool ?? []).some(entry => entry.id === expected.entryId && entry.key === expected.reference);
@@ -101,6 +101,7 @@ export function resolveCurrentProviderApiKeyTransport(
   const fetch = (current as OcxProviderTransport).fetch ?? runtime.fetch;
   return resolveProviderTransport(name, {
     ...current,
+    _apiKeyAttempt: { ...current._apiKeyAttempt, failedEntryIds: routedProvider._apiKeyAttempt?.failedEntryIds },
     ...(Object.keys(headers).length ? { headers } : {}),
     ...(fetch ? { fetch } : {}),
   });

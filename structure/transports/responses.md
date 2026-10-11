@@ -729,3 +729,26 @@ What must not happen is a ladder that charges and then returns through a path th
 nor releases. That is not a lost send; it is a send the request never made, spending an allowance a
 later recovery in the same request then cannot have. `tests/lib/execution-budget-permits.test.ts`
 pins both ladder shapes against exactly that.
+
+## Sağlayıcı anahtar kurtarma
+
+`src/providers/key-health.ts` anahtarın gerçek HTTP kabul ve anahtara özgü ret
+sonuçlarını tutar. Başarı yanıtın tamamlandığı anlamına gelmez. Yakın sonuçlar
+0,8/0,2 ağırlıkla güncellenir; eski kanıt altı saatlik yarı ömürle nötr puana yaklaşır.
+`key-health.json` yalnızca kimlik özeti, sayaç ve zamanı saklar; en çok 1024 gözlem
+tutulur. Tarihçenin okunması veya yazılması başarısız olursa istek durdurulmaz.
+
+`src/providers/key-failover.ts` varsayılan `failover` için uygun anahtarları bu
+puanla seçer. `random`, `least-used`, `reset-window`, `round-robin`, eski `fill-first`
+ve `quota` değerleri aynı havuza uygulanır. Son iki değer sağlıklı seçili anahtarı
+korur. Bilinmeyen kota bir sıfırlanma zamanı olarak uydurulmaz. İstek yerelinde
+seçilen anahtar aynı seçim revizyonunda doğrulanır; kullanıcı seçimi revizyonu
+değiştirerek bekleyen gönderimi geçersiz kılar.
+
+`src/lib/request-execution-budget.ts` içindeki `includeCredentialPool` her
+bildirilen sağlayıcı havuzu için bir kez `anahtar sayısı - 1` kurtarma hakkı ekler.
+Combo kapsamı aynı ana bütçeyi harcar; sayaç yeni anahtarda sıfırlanmaz. Key havuz
+döngüsünün kendi sınırı, iptal, çıktı başlangıcı ve tekrar güvenliği geçerlidir.
+Native Chat aynı isteğin bütçesine havuzdaki alternatifleri dahil eder.
+Kimlik/kota reddi sağlıklı diğer anahtarda tekrar edilir; istemci isteği hataları
+ve içerik politikası retleri anahtar hatası sayılmaz.

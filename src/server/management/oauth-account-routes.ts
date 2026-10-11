@@ -721,6 +721,8 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
     const name = (url.searchParams.get("name") ?? "").trim();
     if (!name || !isValidProviderName(name) || !hasOwnProvider(config.providers, name)) return jsonResponse({ error: "unknown provider" }, 404);
     const { listProviderApiKeys } = await import("../../providers/api-keys");
+    const { apiKeyHealth } = await import("../../providers/key-health");
+    const { getKeyCooldownUntil } = await import("../../providers/key-failover");
     const { providerDeclaredRegionEndpoints } = await import("../../providers/region-detect");
     // Declared regional hosts (2+ for a multi-region provider); the UI renders each key's
     // detected region against this list, and shows nothing when a provider has one host.
@@ -729,7 +731,12 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
       const listed = listProviderApiKeys(config, name);
       const provider = config.providers[name];
       const quotaMode = provider ? providerApiKeyQuotaMode(name, provider) : "unsupported";
-      return { ...listed, keys: listed.keys.map(key => ({ ...key, quotaMode })) };
+      return { ...listed, keys: listed.keys.map(key => {
+        const entry = provider?.apiKeyPool?.find(row => row.id === key.id);
+        return { ...key, quotaMode,
+          ...(provider && entry ? { health: { ...apiKeyHealth(name, provider, entry),
+            cooldownUntil: getKeyCooldownUntil(name, key.id) } } : {}) };
+      }) };
     };
     const initial = projectKeys();
     if (url.searchParams.get("quota") !== "1" || !initial.keys.some(key => key.quotaMode === "probe")) {

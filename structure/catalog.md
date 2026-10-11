@@ -419,3 +419,9 @@ Exact [model input declarations](config.md#explicit-per-model-capability-declara
 ## Renamed destination reasoning metadata
 
 `src/providers/derive.ts` fills missing reasoning tables for renamed providers accepted by the existing fixed-key destination matcher. Model entries are cloned and explicit user entries (including empty arrays) win. Provider-wide effort defaults fill only when undefined; Command Code unknown models therefore keep the registry's empty picker policy unless overridden. Identity, transport and other capability axes are unchanged. The gathered row drives client exports; this metadata contract does not prove arbitrary gateway routing.
+
+## Sağlayıcı anahtar stratejisi
+
+Sağlayıcı anahtar seçimi ve öğrenilen sonuçlar `src/providers/key-failover.ts` ile
+`src/providers/key-health.ts` tarafından yürütülür. Ayrıntılı sözleşme
+[anahtar kurtarma akışında](transports/responses.md#sağlayıcı-anahtar-kurtarma) açıklanır.

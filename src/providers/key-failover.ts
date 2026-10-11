@@ -21,6 +21,7 @@ import { sweepExpiredOnWrite } from "../lib/state-store-sweeper";
 // providers/quota.ts -- so the cached reader reaches the dispatch path without dragging the
 // probe machinery onto it.
 import { cachedApiKeyQuota } from "./quota-key-accounts";
+import { apiKeyHealth, noteApiKeyOutcome } from "./key-health";
 
 // ---- cooldown state (in-memory, same as codex/routing.ts) ----
 
@@ -222,7 +223,7 @@ function nextRoundRobinKey(
  * The caller rebuilds the route through the registry seam (`routedProviderConfig`, via
  * `applyRotatedTransport`), which keeps this stamp and resolves an env/keychain reference.
  */
-function buildRoundRobinRow(
+function buildRequestKeyRow(
   provider: OcxProviderConfig,
   picked: ApiKeyPoolEntry,
 ): OcxProviderConfig {
@@ -286,41 +287,45 @@ function rankKeysByHeadroom(
     .map(row => row.entry);
 }
 
+/** Every selection and recovery uses the same observed, provider-scoped ordering. */
+function orderedKeys(providerName: string, provider: OcxProviderConfig, eligible: readonly ApiKeyPoolEntry[], now: number): ApiKeyPoolEntry[] {
+  const strategy = provider.apiKeyPoolStrategy ?? "failover";
+  if (strategy === "quota") return rankKeysByHeadroom(providerName, provider, eligible);
+  if (strategy === "random") {
+    const shuffled = [...eligible];
+    for (let i = shuffled.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!];
+    }
+    return shuffled;
+  }
+  if (strategy === "fill-first" || strategy === "round-robin") return [...eligible];
+  return eligible.map(entry => {
+    const health = apiKeyHealth(providerName, provider, entry, now);
+    const quota = strategy === "reset-window" ? cachedApiKeyQuota(providerName, provider, entry.id, entry.key) : null;
+    const resets = quota ? [quota.fiveHourResetAt, quota.weeklyResetAt, quota.monthlyResetAt,
+      ...(quota.customWindows ?? []).map(window => window.resetAt)] : [];
+    const reset = Math.min(...resets.filter((value): value is number => typeof value === "number" && value > now));
+    return { entry, health, reset };
+  }).sort((a, b) => {
+    if (strategy === "least-used") {
+      const use = (a.health.successes + a.health.failures) - (b.health.successes + b.health.failures);
+      if (use) return use;
+    }
+    if (strategy === "reset-window" && a.reset !== b.reset) return a.reset < b.reset ? -1 : 1;
+    return (b.health.reliability - a.health.reliability)
+      || (a.entry.key === provider.apiKey ? -1 : b.entry.key === provider.apiKey ? 1 : 0)
+      || a.health.lastUsedAt - b.health.lastUsedAt;
+  }).map(row => row.entry);
+}
 
-/*
- * Pick a key BEFORE the first attempt.
- *
- * Two modes, split by strategy:
- * - `round-robin`: EVERY request advances to the next healthy pool key, whether or not
- *   the committed key is healthy. This is true per-request load distribution: without it
- *   every request lands on the same committed key until a 429 forces a rotation, so a
- *   single upstream key absorbs the full request rate (and its per-key quota) while its
- *   siblings sit idle. The choice is request-local -- no config write, no revision bump, no
- *   live-row mutation -- so the UI keeps showing the operator's committed key and failure
- *   recovery still owns persistence. Cooldown-skipped keys are never picked.
- * - `quota` / `fill-first` / no strategy: intentionally narrow. Never overrides a healthy key:
- *   if the committed `apiKey` is not in cooldown it returns null, so an operator's manual
- *   selection stands and no config write happens. Only acts when the committed key is
- *   known-cooled (or missing from the pool), which is exactly the case where the request would
- *   otherwise be spent earning a refusal the runtime could already predict. A pool with no
- *   strategy behaves like `fill-first` here: without it a key that failed with a verdict the
- *   in-request failover could not move away from stayed committed, and every "continue" was
- *   sent to the same dead key.
- *
- * When every key is cooling this returns null and the request dispatches on the committed key:
- * the upstream's real answer is better than a synthetic local refusal, and a cooldown is a
- * prediction, not a fact.
- *
- * Returning null is the common path for the non-round-robin strategies, so the
- * persisted-selection transaction is not on the per-request hot path.
- *
- * Like `rotateKeyAfterFailure`, the PERSISTED branch of this function answers with a snapshot
- * of the persisted config and carries none of the registry backfills `routedProviderConfig`
- * merges in at request time. A request path must not assign it to an active route wholesale --
- * for a built-in provider stored in its valid minimal form that would drop the adapter id,
- * the base URL and the static headers, so `resolveAdapter()` throws
- * `Unknown adapter: undefined` and a hand-built URL dereferences a missing `baseUrl`. Use
- * `selectProactiveApiKeyTransport`, the pre-dispatch twin of `rotateProviderTransportOn429`.
+
+/**
+ * İlk gönderimden önce aynı sağlayıcının uygun anahtarını seçer.
+ * failover yakın sonuçları, diğer dağıtım seçenekleri seçilen kuralı kullanır.
+ * fill-first/quota sağlıklı kullanıcı seçimini korur. İstek yerelindeki seçim
+ * config yazmaz; hata sonrası gerçek anahtar değişimi mevcut işlemden geçer.
+ * Tüm anahtarlar cooldown içindeyse mevcut sağlayıcı yanıtı son kararı verir.
  */
 export function selectProactiveApiKey(
   config: OcxConfig,
@@ -329,12 +334,19 @@ export function selectProactiveApiKey(
 ): OcxProviderConfig | null {
   const provider = config.providers?.[providerName];
   if (!provider) return null;
-  const strategy = provider.apiKeyPoolStrategy;
+  const strategy = provider.apiKeyPoolStrategy ?? "failover";
   if (!hasKeyPoolFailover(provider)) return null;
   const pool = provider.apiKeyPool ?? [];
 
   const activeEntry = pool.find(entry => entry.key === provider.apiKey);
   const activeHealthy = activeEntry && !isKeyInCooldown(providerName, activeEntry.id, now);
+
+  const eligible = pool.filter(entry => !isKeyInCooldown(providerName, entry.id, now));
+  if (eligible.length === 0) return null;
+  if (["failover", "random", "least-used", "reset-window"].includes(strategy)) {
+    const picked = orderedKeys(providerName, provider, eligible, now)[0]!;
+    return picked.key === provider.apiKey ? null : buildRequestKeyRow(provider, picked);
+  }
 
   // Round-robin is per-request load distribution, not failover: advance on every request
   // while the committed key is healthy. A cooled committed key falls through to the shared
@@ -345,14 +357,11 @@ export function selectProactiveApiKey(
     if (!rotated) return null;
     // The committed key's own turn is returned too, stamped exactly as the committed row would
     // be, so every request in the cycle carries a stamp naming the key it sends.
-    return buildRoundRobinRow(provider, rotated);
+    return buildRequestKeyRow(provider, rotated);
   }
 
   // A healthy committed key wins, whether the operator chose it or a previous rotation did.
   if (activeHealthy) return null;
-
-  const eligible = pool.filter(entry => !isKeyInCooldown(providerName, entry.id, now));
-  if (eligible.length === 0) return null;
 
   let chosen = eligible[0]!;
   if (strategy === "round-robin") {
@@ -450,9 +459,10 @@ export function rateLimitRetryPolicyFor(
  * unknown value.
  */
 export function transientRetryPolicyFor(
-  provider: Pick<OcxProviderConfig, "transientRetryOn5xx" | "authMode" | "adapter">,
+  provider: Pick<OcxProviderConfig, "transientRetryOn5xx" | "authMode" | "adapter" | "apiKeyPoolStrategy" | "apiKeyPool">,
 ): Required<TransientRetryPolicy> | null {
-  const policy = provider.transientRetryOn5xx;
+  const policy = provider.transientRetryOn5xx
+    ?? (provider.apiKeyPool?.length && (provider.apiKeyPoolStrategy ?? "failover") === "failover" ? {} : undefined);
   if (!policy || policy.enabled === false) return null;
   if (provider.adapter !== "openai-chat") return null;
   if (provider.authMode !== undefined && provider.authMode !== "key") return null;
@@ -525,6 +535,10 @@ function rotateKeyAfterFailure(
     attemptedSelection?.entryId
       ? pool.find(entry => entry.id === attemptedSelection.entryId && entry.key === failedKey)
       : pool.find(entry => entry.key === failedKey);
+  const observedFailure = findFailed(provider.apiKeyPool ?? []);
+  if (observedFailure) noteApiKeyOutcome(providerName, provider, failure, observedFailure.id, now);
+  const failedIds = new Set(attemptedSelection?.failedEntryIds);
+  if (observedFailure) failedIds.add(observedFailure.id);
   type Rotation =
     | { failedId?: string; retryId: string; moved: boolean }
     | { exhaustedCount: number; failedId?: string };
@@ -536,7 +550,7 @@ function rotateKeyAfterFailure(
     // defer the in-memory cooldown side effect until persistence has succeeded.
     const failedEntry = findFailed(pool);
     const usable = (entry: ApiKeyPoolEntry): boolean =>
-      entry.key !== failedKey && !isKeyInCooldown(providerName, entry.id, now);
+      entry.key !== failedKey && !failedIds.has(entry.id) && !isKeyInCooldown(providerName, entry.id, now);
 
     if (freshProvider.apiKey !== failedKey) {
       const activeEntry = pool.find(entry => entry.key === freshProvider.apiKey);
@@ -548,11 +562,9 @@ function rotateKeyAfterFailure(
       }
     }
 
-    const currentIndex = failedEntry ? pool.indexOf(failedEntry) : -1;
-    const candidateCount = failedEntry ? pool.length - 1 : pool.length;
-    for (let offset = 1; offset <= candidateCount; offset += 1) {
-      const candidate = pool[(currentIndex + offset) % pool.length]!;
-      if (!usable(candidate)) continue;
+    const eligible = pool.filter(usable);
+    const ordered = orderedKeys(providerName, freshProvider, eligible, now);
+    for (const candidate of ordered) {
       freshProvider.apiKey = candidate.key;
       return {
         changed: true,
@@ -660,7 +672,7 @@ export function rotateProviderTransportOn429(
     options.attemptedSelection ?? routedProvider._apiKeyAttempt,
   );
   if (!rotated) return null;
-  return applyRotatedTransport(providerName, routedProvider, rotated, options.promptCacheKey);
+  return applyRotatedTransport(providerName, routedProvider, rotated, options.promptCacheKey, true);
 }
 
 /** 401 counterpart of `rotateProviderTransportOn429`; shares its transport-rebuild rules. */
@@ -673,7 +685,7 @@ export function rotateProviderTransportOn401(
   const rotated = rotateKeyOn401(config, providerName, options.now, options.attemptedKey,
     options.attemptedSelection ?? routedProvider._apiKeyAttempt);
   if (!rotated) return null;
-  return applyRotatedTransport(providerName, routedProvider, rotated, options.promptCacheKey);
+  return applyRotatedTransport(providerName, routedProvider, rotated, options.promptCacheKey, true);
 }
 
 function applyRotatedTransport(
@@ -681,11 +693,17 @@ function applyRotatedTransport(
   routedProvider: OcxProviderTransport,
   rotated: OcxProviderConfig,
   promptCacheKey?: string,
+  failed = false,
 ): OcxProviderTransport {
   const committedRoute = routedProviderConfig(providerName, rotated);
   const routedSession = routedProvider.headers?.[OPENCODE_GO_SESSION_HEADER];
   const retryProvider: OcxProviderTransport = {
     ...committedRoute,
+    _apiKeyAttempt: {
+      ...committedRoute._apiKeyAttempt,
+      failedEntryIds: [...new Set([...(routedProvider._apiKeyAttempt?.failedEntryIds ?? []),
+        ...(failed && routedProvider._apiKeyAttempt?.entryId ? [routedProvider._apiKeyAttempt.entryId] : [])])],
+    },
     ...(routedProvider.fetch !== undefined ? { fetch: routedProvider.fetch } : {}),
     ...(routedSession !== undefined
       ? {
@@ -739,7 +757,7 @@ export function rotateProviderTransportOnKeyFailure(
     options.attemptedSelection ?? routedProvider._apiKeyAttempt,
   );
   if (!rotated) return null;
-  return applyRotatedTransport(providerName, routedProvider, rotated, options.promptCacheKey);
+  return applyRotatedTransport(providerName, routedProvider, rotated, options.promptCacheKey, true);
 }
 
 /**

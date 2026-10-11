@@ -29,6 +29,7 @@ import {
   rotateProviderTransportOnKeyFailure,
 } from "../../providers/key-failover";
 import { classifyKeyScopedResponse, keyScopedRecoveryKind } from "../../providers/key-failure-class";
+import { noteApiKeyOutcome } from "../../providers/key-health";
 import {
   fetchWithTransientRetry,
   fetchWithResetRetry,
@@ -615,6 +616,7 @@ export async function prepareAdapterExchange(
       while (
         upstreamResponse.status === 429
         && rateLimitPolicy !== null
+        && ((route.provider.apiKeyPoolStrategy ?? "failover") !== "failover" || !hasKeyPoolFailover(route.provider))
         && rateLimitRetries < rateLimitPolicy.attempts
         && !sendBudgetExhausted()
       ) {
@@ -1059,6 +1061,7 @@ export async function prepareAdapterExchange(
     }
   }
 
+  if (upstreamResponse.ok) noteApiKeyOutcome(route.providerName, route.provider);
   cancelBodyOnAbort(upstreamResponse.body, upstream.signal);
 
   return {

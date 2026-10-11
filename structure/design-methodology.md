@@ -52,3 +52,8 @@ The pairing panel names the hub, offers an origin-specific command to run on tha
 Cline uses the existing file-integration page, tabs, status badge and rollback dialogs. Its localized semantics identify both files and the required stop/restart boundary before users mutate them.
 
 Account quota surfaces use [safe probe diagnostics](transports/inventory.md#account-quota-failure-diagnostics) separately from quota validity, credential health and routing authority.
+
+Sağlayıcı Strateji sekmesi mevcut sekme satırı, Select ve Notice bileşenlerini
+kullanır. Davranış adları sade tutulur: Çalışanı seç, Sırayla paylaştır, Rastgele seç,
+En az kullanılanı seç ve Kotası önce yenilenecek olanı seç. Gerçek gözlem bulunmayan
+anahtarın puanı başarı kanıtı gibi gösterilmez.

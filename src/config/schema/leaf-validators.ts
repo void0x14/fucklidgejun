@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { PROVIDER_KEY_STRATEGIES } from "../../types/provider";
 import { join } from "node:path";
 import { isValidProviderName } from "../provider-name";
 import {
@@ -231,7 +232,7 @@ export const providerConfigSchema = z.object({
   // Validated rather than left to passthrough: an unrecognized strategy would otherwise
   // load silently and then be ignored at selection time, which reads as a broken feature
   // rather than a rejected setting.
-  apiKeyPoolStrategy: z.enum(["round-robin", "fill-first", "quota"]).optional(),
+  apiKeyPoolStrategy: z.enum(PROVIDER_KEY_STRATEGIES).optional(),
   keySource: keySourceSchema.optional(),
   autoReviewModel: autoReviewModelSchema.optional(),
   autoReviewModelOverrides: autoReviewModelOverridesSchema.optional(),

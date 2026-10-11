@@ -6,10 +6,13 @@ import type { AttemptRecoveryKind } from "../../usage/log";
 import { noteAttemptSend } from "../request-log";
 import { TRANSIENT_RETRY_MAX_ATTEMPTS } from "../../lib/upstream-retry";
 import type { SingleUseDispatchPermit, SendClass } from "../../lib/request-execution-budget";
+import { hasKeyPoolFailover } from "../../providers/key-failover";
+import type { OcxProviderConfig } from "../../types";
 
 /** Owns the shared request send counter and recovery permits. */
 export function createResponsesSendBudget(
   requestContext: Pick<ResponsesRequestContext, "options" | "req" | "logCtx">,
+  route?: { providerName: string; provider: OcxProviderConfig },
 ) {
   const { options, req, logCtx } = requestContext;
 
@@ -21,6 +24,9 @@ export function createResponsesSendBudget(
   // parent's spend instead of starting over per target -- both halves of the measured
   // amplification in #4546.
   const sendBudget = options.sendBudget ?? createRequestExecutionBudget();
+  if (route && hasKeyPoolFailover(route.provider) && isRequestExecutionBudget(sendBudget)) {
+    sendBudget.includeCredentialPool(route.providerName, route.provider.apiKeyPool?.length ?? 0);
+  }
   // The root workflow is the user-visible task. A per-request cap cannot bound a fan-out that
   // sends once per child seven hundred times, so every send charged to the request is charged
   // to the root as well (#4546).
