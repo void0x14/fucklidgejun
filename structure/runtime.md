@@ -172,6 +172,32 @@ The server exposes `POST /api/stop` which restores native Codex config, stops an
 
 ## Providers and adapters
 
+### Per-model reasoning metadata
+
+`src/providers/derive.ts` fills missing model effort defaults per model. Catalog enrichment
+and routing both use `mergeModelReasoningEffortMaps`; operator aliases win per model and
+effort. Customizing one model does not suppress registry metadata for its siblings.
+Direct-effort contracts retain registry-declared model aliases while preserving an
+explicit model map, including an empty map, instead of always substituting an empty default.
+
+`src/providers/registry/model-seeds.ts` owns the shared MiniMax regional reasoning seed.
+M3 keeps its thinking toggle; M3.1 uses direct `reasoning_effort` and replays
+`reasoning_content`. M3.1's explicit `none` reaches the provider for rejection rather
+than silently enabling thinking. `repairLegacyMiniMaxReasoning` replaces only exact
+obsolete generated effort maps and model lists, before both catalog enrichment and
+`src/router.ts` metadata merging. A differently edited map/list is not rewritten.
+See [MiniMax reasoning](providers/chat-compat.md#minimax-model-specific-reasoning).
+
+### Operation model preferences
+
+`src/operation/models.ts` owns the five role selectors in `operation.json`, resolved
+under `OPENCODEX_HOME`. Empty role entries inherit the orchestrator; an empty
+orchestrator uses normal proxy routing. Missing/unreadable files resolve to inherited
+defaults. Writes validate complete provider/model pairs and persist atomically.
+`src/server/management/operation-routes.ts` exposes authenticated GET/PUT on demand,
+and `gui/src/pages/Operation.tsx` edits that map after a successful load. This is a
+persisted preference contract consumed by CLI/API callers, not an agent scheduler.
+
 | Path | Responsibility |
 | --- | --- |
 | `src/providers/registry.ts` | Compatibility facade; canonical provider presets for CLI, dashboard, OAuth, key providers, and metadata live in `src/providers/registry/entries-core.ts` and `entries-extended.ts`, with model seeds in `model-seeds.ts`. |

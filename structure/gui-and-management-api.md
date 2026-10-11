@@ -8,6 +8,17 @@ is scoped to canonical ChatGPT Responses forwarding; other source-area behavior 
 
 ## Dashboard serving
 
+The combo default-effort selector labels null as **Inherit client / provider** in every
+locale. Its hint states that the default fills an absent client effort and does not
+disable thinking. Model-specific wire behavior is defined by the
+[shared reasoning metadata](runtime.md#per-model-reasoning-metadata), not by this UI label.
+
+Operation preferences are read/written through `/api/operation-models`. The editor
+disables model changes and saving until a successful read, bounds both requests,
+offers read recovery, and keeps saved off-catalog selections visible. The orchestrator
+has an explicit proxy-routing default; other roles inherit it. Save success requires
+`saved: true`, and the shared fetch helper displays nested `{error:{message}}` responses.
+
 The bundled React dashboard is built into `gui/dist` and served by the same Bun proxy. `ocx gui` starts
 the proxy when needed and opens `http://localhost:<port>`, or `http://127.0.0.1:<management port>` when `hub.managementIngress.enabled` is true — see [the hub management dashboard address](runtime.md#hub-management-dashboard-address).
 

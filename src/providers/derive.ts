@@ -1,4 +1,5 @@
 import type { CodexAccountMode, OcxProviderConfig } from "../types";
+import { MINIMAX_FLASH_MODEL, MINIMAX_MODELS, MINIMAX_M3_FAMILY, MINIMAX_M3_REASONING_EFFORT_MAP, MINIMAX_REASONING_CONFIG } from "./registry/model-seeds";
 import { cloneFastWire } from "./fastwire";
 import { DOCUMENTED_WINDOW_SOURCES, documentedWindowsSync } from "./documented-model-windows";
 import {
@@ -126,8 +127,41 @@ function cloneNestedRecord(input: Record<string, Record<string, string>>): Recor
   return Object.fromEntries(Object.entries(input).map(([key, value]) => [key, { ...value }]));
 }
 
+/** Shared by catalog enrichment and routing: operator aliases win per model and effort. */
+export function mergeModelReasoningEffortMaps(
+  seed: OcxProviderConfig["modelReasoningEffortMap"],
+  user: OcxProviderConfig["modelReasoningEffortMap"],
+): OcxProviderConfig["modelReasoningEffortMap"] {
+  if (!seed && !user) return undefined;
+  const out = cloneNestedRecord(seed ?? {});
+  for (const [model, map] of Object.entries(user ?? {})) out[model] = { ...out[model], ...map };
+  return out;
+}
+
 function sameStringArray(left: readonly string[] | undefined, right: readonly string[]): boolean {
   return left?.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+/** Replace only the exact obsolete MiniMax preset shapes; custom settings stay authoritative. */
+export function repairLegacyMiniMaxReasoning(entry: ProviderRegistryEntry, prov: OcxProviderConfig): void {
+  if (entry.id !== "minimax" && entry.id !== "minimax-cn") return;
+  const legacyMap = MINIMAX_M3_REASONING_EFFORT_MAP;
+  for (const [model, map] of Object.entries(prov.modelReasoningEffortMap ?? {})) {
+    if (model.toLowerCase() !== MINIMAX_FLASH_MODEL.toLowerCase()) continue;
+    if (Object.keys(map).length === Object.keys(legacyMap).length
+      && Object.entries(legacyMap).every(([effort, wire]) => map[effort] === wire)) {
+      prov.modelReasoningEffortMap = {
+        ...prov.modelReasoningEffortMap,
+        [model]: { ...MINIMAX_REASONING_CONFIG.modelReasoningEffortMap[MINIMAX_FLASH_MODEL] },
+      };
+    }
+  }
+  if (sameStringArray(prov.thinkingToggleModels, MINIMAX_M3_FAMILY)) {
+    prov.thinkingToggleModels = [...MINIMAX_REASONING_CONFIG.thinkingToggleModels];
+  }
+  if (sameStringArray(prov.reasoningDetailsModels, MINIMAX_MODELS)) {
+    prov.reasoningDetailsModels = [...MINIMAX_REASONING_CONFIG.reasoningDetailsModels];
+  }
 }
 
 type DirectReasoningEffortOverrides = Pick<
@@ -202,13 +236,13 @@ export function applyDirectReasoningEffortContracts(
       value => value,
     );
 
-    // An explicit empty model map masks any provider-wide aliases. Without it, a stale global
-    // mapping such as xhigh -> max would win before the verified direct ladder can clamp it.
+    // A model map (empty unless the direct contract declares aliases) masks provider-wide
+    // aliases, so a stale global xhigh -> max cannot override a verified direct ladder.
     prov.modelReasoningEffortMap = fillFoldedModelDefault(
       prov.modelReasoningEffortMap,
       explicit.modelReasoningEffortMap,
       model,
-      {},
+      entry.modelReasoningEffortMap?.[model] ?? {},
       value => ({ ...value }),
     );
   }
@@ -482,6 +516,7 @@ export function enrichProviderFromRegistry(name: string, prov: OcxProviderConfig
     applyVerbosityDefaults(prov, registryEntryForProviderDestination(prov));
     return;
   }
+  repairLegacyMiniMaxReasoning(entry, prov);
   const explicitDirectReasoning: DirectReasoningEffortOverrides = {
     thinkingBudgetModels: prov.thinkingBudgetModels,
     modelReasoningEfforts: prov.modelReasoningEfforts,
@@ -528,9 +563,9 @@ export function enrichProviderFromRegistry(name: string, prov: OcxProviderConfig
   if (seed.modelReasoningEfforts) {
     prov.modelReasoningEfforts = fillRecordOfArrays(seed.modelReasoningEfforts, prov.modelReasoningEfforts);
   }
-  if (!prov.modelDefaultReasoningEfforts && seed.modelDefaultReasoningEfforts) prov.modelDefaultReasoningEfforts = { ...seed.modelDefaultReasoningEfforts };
+  if (seed.modelDefaultReasoningEfforts) prov.modelDefaultReasoningEfforts = { ...seed.modelDefaultReasoningEfforts, ...prov.modelDefaultReasoningEfforts };
   if (!prov.reasoningEffortMap && seed.reasoningEffortMap) prov.reasoningEffortMap = { ...seed.reasoningEffortMap };
-  if (!prov.modelReasoningEffortMap && seed.modelReasoningEffortMap) prov.modelReasoningEffortMap = cloneNestedRecord(seed.modelReasoningEffortMap);
+  if (seed.modelReasoningEffortMap) prov.modelReasoningEffortMap = mergeModelReasoningEffortMaps(seed.modelReasoningEffortMap, prov.modelReasoningEffortMap);
   if (prov.reasoningWireFormat === undefined && seed.reasoningWireFormat !== undefined) prov.reasoningWireFormat = seed.reasoningWireFormat;
   if (!prov.noVisionModels && seed.noVisionModels) prov.noVisionModels = [...seed.noVisionModels];
   if (!prov.noReasoningModels && seed.noReasoningModels) prov.noReasoningModels = [...seed.noReasoningModels];

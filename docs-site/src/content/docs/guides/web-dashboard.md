@@ -76,6 +76,16 @@ one column and model/effort controls share another. On narrower screens, control
 labels in the same reading order. Long version labels are shortened visually; hover the version
 badge or the version value to read the full value.
 
+## Operation model preferences
+
+The **Operation** page stores a model selection for each role. Empty roles inherit the
+orchestrator; its empty selection uses normal proxy routing. The editor enables saving
+after the settings load successfully and preserves saved models that are absent from the
+current catalog. An unsuccessful read or write displays an error; **Retry** rereads the
+stored settings so you can reconcile an unconfirmed save. Reads and writes have a
+20-second deadline. Saved preferences are available through `ocx operation` and
+`GET/PUT /api/operation-models` for your operation's callers to consume.
+
 ## What you can do
 
 | Area | What it does |

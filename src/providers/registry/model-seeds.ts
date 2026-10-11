@@ -122,13 +122,7 @@ export const MINIMAX_MODELS = [
   "MiniMax-M2",
 ];
 export const MINIMAX_M3_REASONING_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
-/**
- * MiniMax M3-family models. They share the 1M window, the effort ladder, the effort→thinking
- * map, and the thinking toggle, so every per-model list on the provider entries is derived from
- * this one constant. Adding the next M3 sibling here wires it into all of them at once — the
- * previous hand-written lists dropped it from one list (thinkingToggleModels) and the adapter
- * then sent the thinking value as `reasoning_effort`, which MiniMax answers 400 to.
- */
+/** Shared context-window family; reasoning contracts differ between these models. */
 export const MINIMAX_M3_FAMILY = ["MiniMax-M3", "MiniMax-M3.1-Flash-Preview"];
 export const MINIMAX_M3_REASONING_EFFORT_MAP: Record<string, string> = {
   none: "disabled",
@@ -138,6 +132,20 @@ export const MINIMAX_M3_REASONING_EFFORT_MAP: Record<string, string> = {
   high: "adaptive",
   xhigh: "adaptive",
   max: "adaptive",
+};
+export const MINIMAX_FLASH_MODEL = "MiniMax-M3.1-Flash-Preview";
+/** https://platform.minimax.io/docs/api-reference/text-openai-api */
+export const MINIMAX_REASONING_CONFIG = {
+  modelReasoningEfforts: Object.fromEntries(MINIMAX_M3_FAMILY.map(id => [id, MINIMAX_M3_REASONING_EFFORTS])),
+  modelDefaultReasoningEfforts: { "MiniMax-M3": "medium", [MINIMAX_FLASH_MODEL]: "max" },
+  modelReasoningEffortMap: {
+    "MiniMax-M3": MINIMAX_M3_REASONING_EFFORT_MAP,
+    // Preserve an explicit disable request for the provider to reject; never silently enable it.
+    [MINIMAX_FLASH_MODEL]: { none: "none" },
+  },
+  directReasoningEffortModels: [MINIMAX_FLASH_MODEL],
+  thinkingToggleModels: ["MiniMax-M3"],
+  reasoningDetailsModels: MINIMAX_MODELS.filter(id => id !== MINIMAX_FLASH_MODEL),
 };
 export const OPENAI_GPT56_MODELS = ["gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
 export const OPENAI_GPT56_PRO_MODELS = ["gpt-5.6-sol-pro", "gpt-5.6-terra-pro", "gpt-5.6-luna-pro"];

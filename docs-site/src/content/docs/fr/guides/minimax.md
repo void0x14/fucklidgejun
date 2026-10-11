@@ -8,6 +8,28 @@ MiniMax publie deux produits distincts en ligne de commande. OpenCodex intègre 
 - **MiniMax Code** (`mcode`) est un agent de programmation prenant en charge les fournisseurs Anthropic Messages personnalisés.
 - **MiniMax CLI** (`mmx`) est un CLI de plateforme multimodale. Seule sa ressource `text` utilise l’API compatible avec Anthropic qu’OpenCodex peut router.
 
+## Raisonnement des modèles MiniMax
+
+Les préréglages `minimax` et `minimax-cn` partagent les métadonnées, mais pas le contrat de
+raisonnement de M3 et M3.1. M3 conserve son commutateur (`low` désactive la réflexion,
+`medium` à `max` activent le mode adaptatif) et son historique `reasoning_details`.
+`MiniMax-M3.1-Flash-Preview` transmet directement `reasoning_effort` (`low`, `medium`,
+`high`, `xhigh`, `max`) et rejoue `reasoning_content`. Pour M3.1, `low` ne désactive pas
+la réflexion. Cela vaut aussi pour les cibles d’un combo.
+
+Les nouveaux préréglages M3.1 utilisent `max` par défaut ; les valeurs explicites existantes
+sont conservées. Seules les anciennes formes générées exactes de la table d’effort et des
+listes de modèles M3.1 sont réparées lors de l’enrichissement du catalogue et du routage.
+Les entrées manquantes sont complétées par modèle, sans écraser les réglages personnalisés.
+
+M3.1 réfléchit toujours. Un `none` explicite, y compris la traduction de
+`thinking.type=disabled`, est transmis comme `reasoning_effort=none` pour que MiniMax le
+refuse ; OpenCodex ne choisit pas silencieusement un autre effort. **Hériter du client /
+fournisseur** conserve l’effort du client ou la valeur par défaut du fournisseur et ne
+désactive pas la réflexion. Dans **Logs**, ouvrez la requête pour comparer l’effort demandé,
+l’effort effectif, le champ transmis, le modèle résolu et l’erreur du fournisseur.
+Voir le [contrat OpenAI de MiniMax](https://platform.minimax.io/docs/api-reference/text-openai-api).
+
 ## MiniMax Code
 
 Installez MiniMax Code et connectez-vous d’abord en suivant les instructions de MiniMax. Démarrez ensuite OpenCodex et activez l’intégration de fichier réversible :

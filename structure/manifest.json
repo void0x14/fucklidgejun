@@ -81,6 +81,7 @@
         "src/lab/",
         "src/lib/",
         "src/oauth/",
+        "src/operation/",
         "src/providers/",
         "src/reasoning-effort.ts",
         "src/remote/",

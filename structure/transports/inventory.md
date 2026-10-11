@@ -1,5 +1,10 @@
 # Transport Inventory
 
+Provider wire aliases inherit per model through the shared
+[reasoning metadata contract](../runtime.md#per-model-reasoning-metadata). MiniMax M3.1
+uses direct Chat effort and `reasoning_content` replay; transport and credential selection
+stay with their existing owners.
+
 The existing Responses transport is divided by responsibility in the
 [core module ownership](responses.md#core-module-ownership). This surface retains its existing behavior.
 

@@ -1,5 +1,9 @@
 # xAI Grok Provider
 
+Registry effort defaults and wire maps follow the shared
+[per-model fill contract](../runtime.md#per-model-reasoning-metadata), preserving explicit
+xAI entries while filling missing siblings. This does not change xAI authentication or retries.
+
 xAI uses the same shared credential and delivery policies through the Responses
 [core module ownership](../transports/responses.md#core-module-ownership). This surface retains its existing behavior.
 
