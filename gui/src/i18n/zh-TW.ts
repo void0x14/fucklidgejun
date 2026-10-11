@@ -1123,6 +1123,8 @@ export const zhTW: Record<TKey, string> = {
   "pws.apiKeys": "API 金鑰",
   "prov.regionDetectFail": "無法偵測金鑰區域",
   "pws.region": "區域",
+  "pws.regionId.international": "國際 (.io)",
+  "pws.regionId.china": "中國 (.com)",
   "pws.regionUndetected": "未偵測到區域",
   "pws.regionUndetectedHint": "此金鑰尚未對應到上游主機。請執行偵測區域。",
   "pws.detectRegions": "偵測區域",

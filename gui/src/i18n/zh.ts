@@ -2173,6 +2173,8 @@ export const zh: Record<TKey, string> = {
   "pws.apiKeys": "API 密钥",
   "prov.regionDetectFail": "无法检测密钥区域",
   "pws.region": "区域",
+  "pws.regionId.international": "国际 (.io)",
+  "pws.regionId.china": "中国 (.com)",
   "pws.regionUndetected": "未检测到区域",
   "pws.regionUndetectedHint": "此密钥尚未匹配到上游主机。请运行检测区域。",
   "pws.detectRegions": "检测区域",

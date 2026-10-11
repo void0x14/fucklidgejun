@@ -382,8 +382,9 @@ describe("provider registry parity", () => {
       // members. A sibling that is listed for effort but missing from thinkingToggleModels
       // makes the adapter send the thinking value as reasoning_effort, which MiniMax 400s.
       expect(entry?.thinkingToggleModels).toEqual(["MiniMax-M3", "MiniMax-M3.1-Flash-Preview"]);
+      // Flash-Preview is the same M3 generation: same 1M window, same effort ladder.
+      expect(entry?.modelContextWindows?.["MiniMax-M3.1-Flash-Preview"]).toBe(1_000_000);
       for (const modelId of ["MiniMax-M3", "MiniMax-M3.1-Flash-Preview"]) {
-        expect(entry?.modelContextWindows?.[modelId]).toBe(1_000_000);
         expect(entry?.modelReasoningEfforts?.[modelId]).toEqual(["low", "medium", "high", "xhigh", "max"]);
         expect(entry?.modelDefaultReasoningEfforts?.[modelId]).toBe("medium");
         expect(entry?.modelReasoningEffortMap?.[modelId]).toMatchObject({ low: "disabled", medium: "adaptive" });

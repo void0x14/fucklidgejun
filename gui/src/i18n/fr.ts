@@ -1331,6 +1331,8 @@ export const fr: Record<TKey, string> = {
   "pws.apiKeys": "Clés API",
   "prov.regionDetectFail": "Impossible de détecter les régions des clés",
   "pws.region": "Région",
+  "pws.regionId.international": "International (.io)",
+  "pws.regionId.china": "Chine (.com)",
   "pws.regionUndetected": "région non détectée",
   "pws.regionUndetectedHint": "Cette clé n'a pas encore été associée à un hôte amont. Lancez la détection des régions.",
   "pws.detectRegions": "Détecter les régions",

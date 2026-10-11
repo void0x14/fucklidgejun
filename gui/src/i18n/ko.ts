@@ -2192,6 +2192,8 @@ export const ko: Record<TKey, string> = {
   "pws.apiKeys": "API 키",
   "prov.regionDetectFail": "키 리전을 감지할 수 없습니다",
   "pws.region": "리전",
+  "pws.regionId.international": "국제 (.io)",
+  "pws.regionId.china": "중국 (.com)",
   "pws.regionUndetected": "리전 미감지",
   "pws.regionUndetectedHint": "이 키는 아직 업스트림 호스트에 연결되지 않았습니다. 리전 감지를 실행하세요.",
   "pws.detectRegions": "리전 감지",

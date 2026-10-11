@@ -2153,6 +2153,8 @@ export const de: Record<TKey, string> = {
   "pws.apiKeys": "API-Schlüssel",
   "prov.regionDetectFail": "Schlüsselregionen konnten nicht ermittelt werden",
   "pws.region": "Region",
+  "pws.regionId.international": "International (.io)",
+  "pws.regionId.china": "China (.com)",
   "pws.regionUndetected": "Region nicht erkannt",
   "pws.regionUndetectedHint": "Dieser Schlüssel wurde noch keinem Upstream-Host zugeordnet. Führe die Regionserkennung aus.",
   "pws.detectRegions": "Regionen erkennen",

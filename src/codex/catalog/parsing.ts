@@ -586,14 +586,24 @@ export function ensureStrictCatalogFields(
     // Never leave it empty: an entry with no modality at all is worse than a text-only one.
     entry.input_modalities = accepted.length > 0 ? accepted : ["text"];
   }
-  const contextWindow = typeof entry.context_window === "number" && entry.context_window > 0 ? entry.context_window : 128000;
-  entry.context_window = contextWindow;
-  if (
-    typeof entry.max_context_window !== "number"
-    || entry.max_context_window <= 0
-    || ((options.isRouted === true || !isNativeOpenAiEntry(entry)) && entry.max_context_window > contextWindow)
-  ) {
-    entry.max_context_window = contextWindow;
+  // No silent default. A fabricated 128k window is a claim nothing sourced, and it is exactly how
+  // the same model ends up advertising two different windows. When no source measured the window
+  // (provider metadata, live discovery, registry, or an operator override) the field stays absent
+  // so the gap is visible instead of wrong.
+  const contextWindow = typeof entry.context_window === "number" && entry.context_window > 0
+    ? entry.context_window
+    : undefined;
+  if (contextWindow === undefined) {
+    delete entry.context_window;
+  } else {
+    entry.context_window = contextWindow;
+    if (
+      typeof entry.max_context_window !== "number"
+      || entry.max_context_window <= 0
+      || ((options.isRouted === true || !isNativeOpenAiEntry(entry)) && entry.max_context_window > contextWindow)
+    ) {
+      entry.max_context_window = contextWindow;
+    }
   }
   if (typeof entry.effective_context_window_percent !== "number") entry.effective_context_window_percent = 95;
   if (typeof entry.comp_hash !== "string") entry.comp_hash = "opencodex";

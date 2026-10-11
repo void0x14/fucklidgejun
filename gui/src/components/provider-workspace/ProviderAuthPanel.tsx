@@ -5,6 +5,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../../i18n/shared";
+import type { TKey } from "../../i18n/shared";
 import { IconLock, IconRefresh, IconTrash } from "../../icons";
 import type { WorkspaceItem } from "../../provider-workspace/catalog";
 import { oauthAccountDisplayLabel, providerAuthSurface } from "../../provider-workspace/auth";
@@ -47,6 +48,16 @@ function keyRegionLabel(entry: ApiKeyRow, endpoints: KeyRegionEndpoint[]): KeyRe
   const normalized = entry.endpoint.trim().replace(/\/+$/, "").toLowerCase();
   return endpoints.find(candidate => candidate.baseUrl.trim().replace(/\/+$/, "").toLowerCase() === normalized);
 }
+
+/**
+ * The registry labels endpoint choices in English (they double as the provider-settings picker
+ * text). The key list must not splice that English into a localized sentence, so known region ids
+ * resolve through the catalogs; an unknown id falls back to the registry label.
+ */
+const REGION_LABEL_KEYS: Record<string, TKey> = {
+  international: "pws.regionId.international",
+  china: "pws.regionId.china",
+};
 
 /**
  * One predicate for "this row cannot spend a coupon right now". The read set and
@@ -686,7 +697,10 @@ export default function ProviderAuthPanel({
                         const region = keyRegionLabel(entry, endpoints);
                         // Detected host: name it. Set-but-unmatched: show the raw host. Unset:
                         // the key has not been region-detected yet.
-                        if (region) return <span className="badge badge-muted" title={region.baseUrl}>{t("pws.region")}: {region.label}</span>;
+                        if (region) {
+                          const regionKey = REGION_LABEL_KEYS[region.id];
+                          return <span className="badge badge-muted" title={region.baseUrl}>{t("pws.region")}: {regionKey ? t(regionKey) : region.label}</span>;
+                        }
                         if (entry.endpoint) return <span className="badge badge-muted" title={entry.endpoint}>{t("pws.region")}: {entry.endpoint}</span>;
                         return <span className="badge badge-amber" title={t("pws.regionUndetectedHint")}>{t("pws.regionUndetected")}</span>;
                       })()}

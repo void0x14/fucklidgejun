@@ -1358,6 +1358,8 @@ export const en = {
   "pws.addKey": "Add API key",
   "pws.apiKeys": "API Keys",
   "pws.region": "Region",
+  "pws.regionId.international": "International (.io)",
+  "pws.regionId.china": "China (.com)",
   "pws.regionUndetected": "region not detected",
   "pws.regionUndetectedHint": "This key has not been matched to an upstream host yet. Run Detect regions.",
   "pws.detectRegions": "Detect regions",

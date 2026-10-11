@@ -479,6 +479,16 @@ async function gatherRoutedModelsUncached(
   // Provider-derived rows keyed by their Codex-facing slug: a custom override replaces the row
   // with the same slug below, so that row's provider capability metadata is the inheritance source.
   const replacedByRoutedSlug = new Map(all.map(model => [routedSlug(model.provider, model.id), model]));
+  // Provider-published rows keyed by provider + NATIVE id, the inheritance source for a custom row.
+  const publishedByProviderNative = new Map(all.map(model => [model.provider + "\u0000" + model.id, model]));
+  // The same model hosted by a SIBLING provider still carries one window; that row is the best
+  // available source when this provider publishes no row of its own.
+  const publishedByNativeId = new Map<string, CatalogModel[]>();
+  for (const model of all) {
+    const rows = publishedByNativeId.get(model.id);
+    if (rows) rows.push(model);
+    else publishedByNativeId.set(model.id, [model]);
+  }
   const customModels = (config.customModels ?? []).map(cm => {
     const rawProvider = config.providers[cm.provider];
     const effectiveProvider = enrichedByName.get(cm.provider) ?? rawProvider;
@@ -501,11 +511,45 @@ async function gatherRoutedModelsUncached(
     const nativeAliasContextWindow = codexForwardNativeCapabilityAlias
       ? nativeOpenAiContextWindow(cm.modelId, customNativeLimits)
       : undefined;
-    const customContextWindow = cm.contextWindow
-      ? nativeAliasContextWindow !== undefined
-        ? nativeAliasContextWindow
-        : cm.contextWindow
-      : nativeAliasContextWindow;
+    // A custom row that sets no window must carry the window the provider/upstream PUBLISHES for
+    // that model, never the 128k catalog default: the operator's rule is "use the upstream window
+    // unless I set one myself". The id can be a sibling-provider slug, so the stripped native id is
+    // tried first and the raw id second. Sources in precedence order: the provider's published
+    // catalog row, the provider's own config window, then the registry window the upstream value
+    // was recorded into.
+    const registryContextWindows = getProviderRegistryEntry(cm.provider)?.modelContextWindows;
+    const customWindowFor = (id: string): number | undefined => {
+      // The window is a property of the MODEL, so the published row (whichever provider hosts it)
+      // is preferred: it already carries the catalog's effective-window reduction, which keeps a
+      // custom row numerically identical to the provider row it shadows.
+      // A sibling provider's row is the same model; prefer it over this provider's, whose row a
+      // custom entry is about to replace (and which may not carry the catalog's reduced window).
+      const sibling = publishedByNativeId.get(id)?.find(row => row.provider !== cm.provider);
+      if (typeof sibling?.contextWindow === "number" && sibling.contextWindow > 0) return sibling.contextWindow;
+      const published = publishedByProviderNative.get(cm.provider + "\u0000" + id);
+      if (typeof published?.contextWindow === "number" && published.contextWindow > 0) return published.contextWindow;
+      const configuredWindow = rawProvider?.modelContextWindows?.[id];
+      if (typeof configuredWindow === "number" && configuredWindow > 0) return configuredWindow;
+      const registryWindow = registryContextWindows?.[id];
+      return typeof registryWindow === "number" && registryWindow > 0 ? registryWindow : undefined;
+    };
+    const customIdCandidates = (() => {
+      const slash = cm.modelId.indexOf("/");
+      const remainder = slash > 0 ? cm.modelId.slice(slash + 1) : "";
+      return remainder ? [remainder, cm.modelId] : [cm.modelId];
+    })();
+    const inheritedContextWindow = customIdCandidates.map(customWindowFor).find(value => value !== undefined);
+    // The operator's per-provider context cap binds every row of that provider — a custom row for
+    // a capped provider must not advertise a larger window than the provider rows beside it, or the
+    // same model shows two different windows (1000000 next to the capped 950000).
+    const customContextWindow = applyProviderContextCap(
+      cm.contextWindow
+        ? nativeAliasContextWindow !== undefined
+          ? nativeAliasContextWindow
+          : cm.contextWindow
+        : nativeAliasContextWindow ?? inheritedContextWindow,
+      providerContextCap(config, cm.provider),
+    );
     const nativeAliasMaxInputTokens = codexForwardNativeCapabilityAlias
       ? nativeOpenAiMaxInputTokens(cm.modelId, customNativeLimits)
       : undefined;
@@ -617,7 +661,11 @@ async function gatherRoutedModelsUncached(
       : undefined;
     const merged: CatalogModel = replaced ? {
       ...base,
-      ...(base.contextWindow === undefined && replaced.contextWindow !== undefined ? { contextWindow: replaced.contextWindow } : {}),
+      ...(base.contextWindow === undefined && replaced.contextWindow !== undefined
+        // The inherited window still obeys the operator's per-provider cap, so a custom row can
+        // never advertise more than the provider rows it sits beside.
+        ? { contextWindow: applyProviderContextCap(replaced.contextWindow, providerContextCap(config, cm.provider)) ?? replaced.contextWindow }
+        : {}),
       ...(mergedMaxInput !== undefined ? { maxInputTokens: mergedMaxInput } : {}),
       ...(mergedMaxOutput !== undefined ? { maxOutputTokens: mergedMaxOutput } : {}),
       ...(base.autoCompactTokenLimit === undefined && replaced.autoCompactTokenLimit !== undefined

@@ -1326,6 +1326,8 @@ export const ru: Record<TKey, string> = {
   "pws.apiKeys": "API-ключи",
   "prov.regionDetectFail": "Не удалось определить регионы ключей",
   "pws.region": "Регион",
+  "pws.regionId.international": "Международный (.io)",
+  "pws.regionId.china": "Китай (.com)",
   "pws.regionUndetected": "регион не определён",
   "pws.regionUndetectedHint": "Этот ключ ещё не привязан к вышестоящему хосту. Запустите определение регионов.",
   "pws.detectRegions": "Определить регионы",

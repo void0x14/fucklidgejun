@@ -1256,6 +1256,8 @@ export const ja: Record<TKey, string> = {
   "pws.apiKeys": "API キー",
   "prov.regionDetectFail": "キーのリージョンを検出できませんでした",
   "pws.region": "リージョン",
+  "pws.regionId.international": "国際 (.io)",
+  "pws.regionId.china": "中国 (.com)",
   "pws.regionUndetected": "リージョン未検出",
   "pws.regionUndetectedHint": "このキーはまだ上流ホストに紐付けられていません。リージョン検出を実行してください。",
   "pws.detectRegions": "リージョンを検出",

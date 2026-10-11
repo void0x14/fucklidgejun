@@ -1345,6 +1345,8 @@ export const tr: Record<TKey, string> = {
   "pws.addKey": "API anahtarı ekle",
   "pws.apiKeys": "API Anahtarları",
   "pws.region": "Bölge",
+  "pws.regionId.international": "Uluslararası (.io)",
+  "pws.regionId.china": "Çin (.com)",
   "pws.regionUndetected": "bölge tespit edilmedi",
   "pws.regionUndetectedHint": "Bu anahtar henüz bir üst sunucuyla eşleştirilmedi. Bölgeleri tespit et'i çalıştır.",
   "pws.detectRegions": "Bölgeleri tespit et",
