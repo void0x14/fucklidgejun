@@ -763,9 +763,10 @@ function routeModelInternal(
       // slash id via an exact known-id lookup; raw full-slash selectors keep working.
       const requestedModel = modelId.slice(slash + 1);
       const decoded = decodeRoutedModelIdOrThrow(requestedModel, known);
-      const nativeModel = known.includes(decoded)
+      const decodedModel = known.includes(decoded)
         ? decoded
         : resolveModelAlias(config, prov, known, requestedModel) ?? decoded;
+      const nativeModel = stripSiblingProviderSlug(config, provName, decodedModel, known);
       return routeResult(
         config,
         provName,
@@ -880,6 +881,35 @@ function routeWithDecisionTrace(config: OcxConfig, modelId: string, route: Route
       : undefined,
   });
   return route;
+}
+
+/**
+ * Repair a cross-provider slug that leaked into a model id.
+ *
+ * A custom-model row or a combo target is supposed to hold the TARGET provider's NATIVE model id,
+ * but a mis-authored value can carry the catalog id of the SAME model on a sibling provider
+ * (provider "minimax" with modelId "minimax-cn/MiniMax-M3.1-Flash-Preview"). Forwarding that
+ * verbatim makes the upstream answer 400 "unknown model". When the leading segment names a
+ * DIFFERENT provider and the remainder is a model THIS provider already knows, route the
+ * remainder instead. A genuinely namespaced native id (e.g. together + "deepseek-ai/...") is left
+ * alone because its remainder is not one of this provider's own model ids.
+ */
+function stripSiblingProviderSlug(
+  config: OcxConfig,
+  provName: string,
+  modelId: string,
+  known: readonly string[],
+): string {
+  const slash = modelId.indexOf("/");
+  if (slash <= 0) return modelId;
+  const prefix = modelId.slice(0, slash);
+  if (prefix === provName) return modelId;
+  const remainder = modelId.slice(slash + 1);
+  if (!remainder) return modelId;
+  const isProviderId = hasOwnProvider(config.providers, prefix)
+    || PROVIDER_REGISTRY.some(entry => entry.id === prefix || entry.alias === prefix);
+  if (!isProviderId) return modelId;
+  return known.includes(remainder) ? remainder : modelId;
 }
 
 export function routeModel(

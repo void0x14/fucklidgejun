@@ -198,3 +198,43 @@ describe("exact-own override maps must not spread to the family", () => {
     }
   });
 });
+
+/**
+ * A provider's modelReasoningEffortMap can yield a thinking-TYPE token (`adaptive`) instead of
+ * an OpenAI-style effort. That token belongs in `thinking.type`; putting it in
+ * `reasoning_effort` is a vendor 400 ("invalid reasoning_effort: \"adaptive\""). This is the
+ * exact MiniMax-M3.1-Flash-Preview slip: the model was listed for effort but missing from
+ * thinkingToggleModels, so the adapter fell through to reasoning_effort.
+ */
+describe("thinking-type tokens never leak into reasoning_effort", () => {
+  function bodyFor(provider: OcxProviderConfig): Record<string, unknown> {
+    const parsed: OcxParsedRequest = {
+      modelId: "MiniMax-M3.1-Flash-Preview",
+      context: { messages: [{ role: "user", content: "hi", timestamp: 0 }] },
+      stream: false,
+      options: { reasoning: "high" },
+    };
+    return JSON.parse(createOpenAIChatAdapter(provider).buildRequest(parsed).body as string);
+  }
+
+  const base = {
+    adapter: "openai-chat",
+    baseUrl: "https://api.minimax.io/v1",
+    apiKey: "sk-test",
+    authMode: "key",
+    modelReasoningEfforts: { "MiniMax-M3.1-Flash-Preview": ["low", "medium", "high"] },
+    modelReasoningEffortMap: { "MiniMax-M3.1-Flash-Preview": { medium: "adaptive", high: "adaptive" } },
+  } satisfies Partial<OcxProviderConfig>;
+
+  test("omits the field when the model is NOT a thinking-toggle model", () => {
+    const body = bodyFor({ ...base, thinkingToggleModels: ["MiniMax-M3"] } as OcxProviderConfig);
+    expect(body.reasoning_effort).toBeUndefined();
+    expect(body.thinking).toBeUndefined();
+  });
+
+  test("sends thinking.type when the model IS a thinking-toggle model", () => {
+    const body = bodyFor({ ...base, thinkingToggleModels: ["MiniMax-M3.1-Flash-Preview"] } as OcxProviderConfig);
+    expect(body.reasoning_effort).toBeUndefined();
+    expect(body.thinking).toEqual({ type: "adaptive" });
+  });
+});

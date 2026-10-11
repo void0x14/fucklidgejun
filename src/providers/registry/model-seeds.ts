@@ -115,15 +115,25 @@ export const ZAI_GLM_5X_REASONING_EFFORTS: Record<string, string[]> = {
 // devlog/_plan/260710_provider_hardening/002_research_cn.md.
 export const MINIMAX_MODELS = [
   "MiniMax-M3",
+  "MiniMax-M3.1-Flash-Preview",
   "MiniMax-M2.7", "MiniMax-M2.7-highspeed",
   "MiniMax-M2.5", "MiniMax-M2.5-highspeed",
   "MiniMax-M2.1", "MiniMax-M2.1-highspeed",
   "MiniMax-M2",
 ];
 export const MINIMAX_MODEL_CONTEXT_WINDOWS: Record<string, number> = Object.fromEntries(
-  MINIMAX_MODELS.map(id => [id, id === "MiniMax-M3" ? 1_000_000 : 204_800]),
+  // The M3 family (M3 and its Flash-Preview sibling) carries the 1M window; M2.x stays at 204.8k.
+  MINIMAX_MODELS.map(id => [id, id.startsWith("MiniMax-M3") ? 1_000_000 : 204_800]),
 );
 export const MINIMAX_M3_REASONING_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+/**
+ * MiniMax M3-family models. They share the 1M window, the effort ladder, the effort→thinking
+ * map, and the thinking toggle, so every per-model list on the provider entries is derived from
+ * this one constant. Adding the next M3 sibling here wires it into all of them at once — the
+ * previous hand-written lists dropped it from one list (thinkingToggleModels) and the adapter
+ * then sent the thinking value as `reasoning_effort`, which MiniMax answers 400 to.
+ */
+export const MINIMAX_M3_FAMILY = ["MiniMax-M3", "MiniMax-M3.1-Flash-Preview"];
 export const MINIMAX_M3_REASONING_EFFORT_MAP: Record<string, string> = {
   none: "disabled",
   minimal: "disabled",

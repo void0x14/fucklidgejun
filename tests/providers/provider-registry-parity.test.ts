@@ -359,6 +359,7 @@ describe("provider registry parity", () => {
 
     const minimaxModels = [
       "MiniMax-M3",
+      "MiniMax-M3.1-Flash-Preview",
       "MiniMax-M2.7", "MiniMax-M2.7-highspeed",
       "MiniMax-M2.5", "MiniMax-M2.5-highspeed",
       "MiniMax-M2.1", "MiniMax-M2.1-highspeed",
@@ -377,8 +378,18 @@ describe("provider registry parity", () => {
       expect(entry?.preserveReasoningContentModels).toEqual(minimaxModels);
       expect(entry?.reasoningSplitModels).toEqual(minimaxModels);
       expect(entry?.reasoningDetailsModels).toEqual(minimaxModels);
-      expect(entry?.thinkingToggleModels).toEqual(["MiniMax-M3"]);
-      for (const modelId of minimaxModels.slice(1)) {
+      // The M3 family is wired from one constant, so every per-model list must carry BOTH
+      // members. A sibling that is listed for effort but missing from thinkingToggleModels
+      // makes the adapter send the thinking value as reasoning_effort, which MiniMax 400s.
+      expect(entry?.thinkingToggleModels).toEqual(["MiniMax-M3", "MiniMax-M3.1-Flash-Preview"]);
+      for (const modelId of ["MiniMax-M3", "MiniMax-M3.1-Flash-Preview"]) {
+        expect(entry?.modelContextWindows?.[modelId]).toBe(1_000_000);
+        expect(entry?.modelReasoningEfforts?.[modelId]).toEqual(["low", "medium", "high", "xhigh", "max"]);
+        expect(entry?.modelDefaultReasoningEfforts?.[modelId]).toBe("medium");
+        expect(entry?.modelReasoningEffortMap?.[modelId]).toMatchObject({ low: "disabled", medium: "adaptive" });
+        expect(entry?.thinkingToggleModels).toContain(modelId);
+      }
+      for (const modelId of minimaxModels.slice(2)) {
         expect(entry?.modelContextWindows?.[modelId]).toBe(204_800);
       }
     }

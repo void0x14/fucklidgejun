@@ -1810,3 +1810,39 @@ test("combo identifiers leaf preserves public export identity without facade imp
   expect(source.split(/\r?\n/).some(line => /from\s+["']\.\/(types|index)["']/.test(line)))
     .toBe(false);
 });
+
+describe("combo target model repair", () => {
+  /**
+   * A combo target must hold the TARGET provider's native model id. A mis-authored value can
+   * carry the catalog id of the same model on a SIBLING provider (`minimax` +
+   * `minimax-cn/MiniMax-M3.1-Flash-Preview`), which the upstream answers 400 to ("unknown
+   * model"). The router must route the remainder when the target provider already knows it, and
+   * must NOT rewrite a genuinely namespaced native id.
+   */
+  function configWithSiblingSlugTarget(): OcxConfig {
+    return {
+      port: 10199,
+      defaultProvider: "sib",
+      providers: {
+        sib: { adapter: "openai-chat", baseUrl: "https://api.minimax.io/v1", authMode: "key", apiKey: "k1", models: ["MiniMax-M3", "MiniMax-M3.1-Flash-Preview"] },
+        "sib-cn": { adapter: "openai-chat", baseUrl: "https://api.minimaxi.com/v1", authMode: "key", apiKey: "k2", models: ["MiniMax-M3.1-Flash-Preview"] },
+      },
+      combos: {
+        broken: { strategy: "round-robin", targets: [{ provider: "sib", model: "sib-cn/MiniMax-M3.1-Flash-Preview" }] },
+        legit: { strategy: "round-robin", targets: [{ provider: "sib", model: "sib-cn/not-a-sib-model" }] },
+      },
+    } as unknown as OcxConfig;
+  }
+
+  test("a sibling-provider slug in a combo target routes to the native id", () => {
+    const route = routeModel(configWithSiblingSlugTarget(), "combo/broken");
+    expect(route.providerName).toBe("sib");
+    expect(route.modelId).toBe("MiniMax-M3.1-Flash-Preview");
+  });
+
+  test("a genuinely namespaced id whose remainder is unknown to the target is left intact", () => {
+    const route = routeModel(configWithSiblingSlugTarget(), "combo/legit");
+    expect(route.providerName).toBe("sib");
+    expect(route.modelId).toBe("sib-cn/not-a-sib-model");
+  });
+});

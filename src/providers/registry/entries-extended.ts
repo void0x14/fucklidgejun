@@ -39,6 +39,7 @@ import {
   MINIMAX_MODELS,
   MINIMAX_MODEL_CONTEXT_WINDOWS,
   MINIMAX_M3_REASONING_EFFORTS,
+  MINIMAX_M3_FAMILY,
   MINIMAX_M3_REASONING_EFFORT_MAP,
   THINKING_TOGGLE_EFFORTS,
   THINKING_TOGGLE_MAP,
@@ -851,9 +852,9 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     allowBaseUrlOverride: true, baseUrlChoices: MINIMAX_BASE_URL_CHOICES,
     dashboardUrl: "https://platform.minimax.io", defaultModel: "MiniMax-M3", models: MINIMAX_MODELS,
     modelContextWindows: MINIMAX_MODEL_CONTEXT_WINDOWS,
-    modelReasoningEfforts: { "MiniMax-M3": MINIMAX_M3_REASONING_EFFORTS },
-    modelDefaultReasoningEfforts: { "MiniMax-M3": "medium" },
-    modelReasoningEffortMap: { "MiniMax-M3": MINIMAX_M3_REASONING_EFFORT_MAP },
+    modelReasoningEfforts: Object.fromEntries(MINIMAX_M3_FAMILY.map(id => [id, MINIMAX_M3_REASONING_EFFORTS])),
+    modelDefaultReasoningEfforts: Object.fromEntries(MINIMAX_M3_FAMILY.map(id => [id, "medium"])),
+    modelReasoningEffortMap: Object.fromEntries(MINIMAX_M3_FAMILY.map(id => [id, MINIMAX_M3_REASONING_EFFORT_MAP])),
     preserveReasoningContentModels: MINIMAX_MODELS,
     // MiniMax-M3 low effort maps to thinking disabled, so a legitimate tool
     // round can carry no reasoning at all; only replay real recorded text,
@@ -867,7 +868,7 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     // Evidence: platform.minimax.io/docs/guides/text-m3-function-call and
     // /docs/api-reference/text-openai-api (verified 2026-09-01).
     reasoningDetailsModels: MINIMAX_MODELS,
-    thinkingToggleModels: ["MiniMax-M3"],
+    thinkingToggleModels: [...MINIMAX_M3_FAMILY],
     jawcodeBundle: "minimax", metadataModelIdNormalize: "case-insensitive", note: "Subscription Key or API Key",
   },
   {
@@ -875,14 +876,14 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     allowBaseUrlOverride: true, baseUrlChoices: MINIMAX_BASE_URL_CHOICES,
     dashboardUrl: "https://platform.minimaxi.com", defaultModel: "MiniMax-M3", models: MINIMAX_MODELS,
     modelContextWindows: MINIMAX_MODEL_CONTEXT_WINDOWS,
-    modelReasoningEfforts: { "MiniMax-M3": MINIMAX_M3_REASONING_EFFORTS },
-    modelDefaultReasoningEfforts: { "MiniMax-M3": "medium" },
-    modelReasoningEffortMap: { "MiniMax-M3": MINIMAX_M3_REASONING_EFFORT_MAP },
+    modelReasoningEfforts: Object.fromEntries(MINIMAX_M3_FAMILY.map(id => [id, MINIMAX_M3_REASONING_EFFORTS])),
+    modelDefaultReasoningEfforts: Object.fromEntries(MINIMAX_M3_FAMILY.map(id => [id, "medium"])),
+    modelReasoningEffortMap: Object.fromEntries(MINIMAX_M3_FAMILY.map(id => [id, MINIMAX_M3_REASONING_EFFORT_MAP])),
     preserveReasoningContentModels: MINIMAX_MODELS,
     requiresReasoningPlaceholderModels: [],
     reasoningSplitModels: MINIMAX_MODELS,
     reasoningDetailsModels: MINIMAX_MODELS,
-    thinkingToggleModels: ["MiniMax-M3"],
+    thinkingToggleModels: [...MINIMAX_M3_FAMILY],
     jawcodeBundle: "minimax", metadataModelIdNormalize: "case-insensitive", note: "中国区 Subscription Key",
   },
   {

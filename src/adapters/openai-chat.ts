@@ -204,6 +204,13 @@ export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAd
                 wireValue: reasoningEffort,
               };
             }
+          } else if (reasoningEffort === "adaptive" || reasoningEffort === "enabled" || reasoningEffort === "disabled") {
+            // `adaptive`/`enabled`/`disabled` are thinking-TYPE tokens: they are meaningful only as
+            // `thinking.type` (the branch above). A provider whose modelReasoningEffortMap yields
+            // one of them for a model that is NOT in thinkingToggleModels would otherwise put it
+            // into `reasoning_effort`, and vendors reject that with 400 ("invalid
+            // reasoning_effort: ..."). Omit the field so the upstream default applies and the
+            // request still succeeds, instead of forwarding a value no OpenAI-shaped wire accepts.
           } else {
             body.reasoning_effort = reasoningEffort;
             reasoningLog = {
