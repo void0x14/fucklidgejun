@@ -22,6 +22,7 @@ import { sweepExpiredOnWrite } from "../lib/state-store-sweeper";
 // probe machinery onto it.
 import { cachedApiKeyQuota } from "./quota-key-accounts";
 import { apiKeyHealth, noteApiKeyOutcome } from "./key-health";
+import { resolveProviderApiKey } from "./key-store";
 
 // ---- cooldown state (in-memory, same as codex/routing.ts) ----
 
@@ -195,7 +196,7 @@ function nextRoundRobinKey(
     : pool.findIndex(entry => entry.key === committedKey);
   for (let offset = 1; offset <= pool.length; offset += 1) {
     const candidate = pool[(anchorIndex + offset) % pool.length]!;
-    if (isKeyInCooldown(providerName, candidate.id, now)) continue;
+    if (!readableKey(candidate) || isKeyInCooldown(providerName, candidate.id, now)) continue;
     keyRotationCursor.set(providerName, candidate.id);
     return candidate;
   }
@@ -240,6 +241,13 @@ function buildRequestKeyRow(
 
 /** The pool entry shape is inline on OcxProviderConfig; name it once rather than re-spelling it. */
 type ApiKeyPoolEntry = NonNullable<OcxProviderConfig["apiKeyPool"]>[number];
+
+function readableKey(entry: ApiKeyPoolEntry): boolean {
+  try {
+    const key = resolveProviderApiKey(entry.key);
+    return typeof key === "string" && !!key.trim() && !/[\r\n]/.test(key);
+  } catch { return false; }
+}
 
 /**
  * Remaining headroom for one key, or null when nothing current measures it.
@@ -319,6 +327,14 @@ function orderedKeys(providerName: string, provider: OcxProviderConfig, eligible
   }).map(row => row.entry);
 }
 
+/** Katalog okuması anahtar tercihini değiştirmez; aynı sıralamayı yerel kopyalara uygular. */
+export function providerKeyCandidates(name: string, provider: OcxProviderConfig, now = Date.now()): OcxProviderConfig[] {
+  if (!provider.apiKeyPool?.length) return [provider];
+  const available = provider.apiKeyPool.filter(entry => readableKey(entry) && !isKeyInCooldown(name, entry.id, now));
+  return orderedKeys(name, provider, available.length ? available : provider.apiKeyPool.filter(readableKey), now)
+    .map(entry => buildRequestKeyRow(provider, entry));
+}
+
 
 /**
  * İlk gönderimden önce aynı sağlayıcının uygun anahtarını seçer.
@@ -339,9 +355,9 @@ export function selectProactiveApiKey(
   const pool = provider.apiKeyPool ?? [];
 
   const activeEntry = pool.find(entry => entry.key === provider.apiKey);
-  const activeHealthy = activeEntry && !isKeyInCooldown(providerName, activeEntry.id, now);
+  const activeHealthy = activeEntry && readableKey(activeEntry) && !isKeyInCooldown(providerName, activeEntry.id, now);
 
-  const eligible = pool.filter(entry => !isKeyInCooldown(providerName, entry.id, now));
+  const eligible = pool.filter(entry => readableKey(entry) && !isKeyInCooldown(providerName, entry.id, now));
   if (eligible.length === 0) return null;
   if (["failover", "random", "least-used", "reset-window"].includes(strategy)) {
     const picked = orderedKeys(providerName, provider, eligible, now)[0]!;
@@ -369,7 +385,7 @@ export function selectProactiveApiKey(
     const lastIndex = lastId ? pool.findIndex(entry => entry.id === lastId) : -1;
     for (let offset = 1; offset <= pool.length; offset += 1) {
       const candidate = pool[(lastIndex + offset) % pool.length]!;
-      if (isKeyInCooldown(providerName, candidate.id, now)) continue;
+      if (!readableKey(candidate) || isKeyInCooldown(providerName, candidate.id, now)) continue;
       chosen = candidate;
       break;
     }
@@ -387,7 +403,7 @@ export function selectProactiveApiKey(
     if (freshProvider.apiKey === target.key) return { changed: false, value: null };
     const freshActive = freshPool.find(entry => entry.key === freshProvider.apiKey);
     // Re-check under the lock: a concurrent manual selection may have landed a healthy key.
-    if (freshActive && !isKeyInCooldown(providerName, freshActive.id, now)) {
+    if (freshActive && readableKey(freshActive) && !isKeyInCooldown(providerName, freshActive.id, now)) {
       return { changed: false, value: null };
     }
     freshProvider.apiKey = target.key;
@@ -550,7 +566,7 @@ function rotateKeyAfterFailure(
     // defer the in-memory cooldown side effect until persistence has succeeded.
     const failedEntry = findFailed(pool);
     const usable = (entry: ApiKeyPoolEntry): boolean =>
-      entry.key !== failedKey && !failedIds.has(entry.id) && !isKeyInCooldown(providerName, entry.id, now);
+      entry.key !== failedKey && readableKey(entry) && !failedIds.has(entry.id) && !isKeyInCooldown(providerName, entry.id, now);
 
     if (freshProvider.apiKey !== failedKey) {
       const activeEntry = pool.find(entry => entry.key === freshProvider.apiKey);
@@ -771,7 +787,7 @@ export function rotateProviderTransportOnKeyFailure(
 export function hasHealthyApiKeySpare(config: OcxConfig, providerName: string, now = Date.now()): boolean {
   const provider = config.providers?.[providerName];
   if (!provider || provider.disabled || !hasKeyPoolFailover(provider)) return false;
-  return (provider.apiKeyPool ?? []).some(entry => !isKeyInCooldown(providerName, entry.id, now));
+  return (provider.apiKeyPool ?? []).some(entry => readableKey(entry) && !isKeyInCooldown(providerName, entry.id, now));
 }
 
 /** Visible-for-testing: get the cooldown-until timestamp for a key. */

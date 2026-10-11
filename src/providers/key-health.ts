@@ -6,6 +6,8 @@ import { getConfigDir } from "../config/paths";
 import type { OcxProviderConfig } from "../types";
 import type { KeyScopedFailureClass } from "./key-failure-class";
 import type { ProviderApiKeyHealth as ApiKeyHealth } from "../types/provider";
+import { getProviderRegistryEntry } from "./registry";
+import { resolveProviderApiKey } from "./key-store";
 export type { ProviderApiKeyHealth as ApiKeyHealth } from "../types/provider";
 
 type PoolEntry = NonNullable<OcxProviderConfig["apiKeyPool"]>[number];
@@ -39,14 +41,17 @@ function storePath(): string {
   return path;
 }
 
-function identity(provider: OcxProviderConfig, entry: PoolEntry): string {
-  return createHash("sha256").update(`${entry.baseUrl ?? provider.baseUrl}\0${entry.key}`).digest("hex");
+function identity(name: string, provider: OcxProviderConfig, entry: PoolEntry): string {
+  const baseUrl = entry.baseUrl ?? provider.baseUrl ?? getProviderRegistryEntry(name)?.baseUrl;
+  let credential = entry.key;
+  try { credential = resolveProviderApiKey(entry.key) ?? entry.key; } catch { /* Unreadable reference has no credential evidence. */ }
+  return createHash("sha256").update(`${baseUrl}\0${credential}`).digest("hex");
 }
 
 export function apiKeyHealth(providerName: string, provider: OcxProviderConfig, entry: PoolEntry, now = Date.now()): ApiKeyHealth {
   storePath();
   const stored = observations.get(`${providerName}\0${entry.id}`);
-  if (!stored || stored.identity !== identity(provider, entry)) {
+  if (!stored || stored.identity !== identity(providerName, provider, entry)) {
     return { successes: 0, failures: 0, reliability: 0.5, lastUsedAt: 0 };
   }
   const weight = Math.pow(0.5, Math.max(0, now - stored.lastUsedAt) / HALF_LIFE_MS);
@@ -66,10 +71,11 @@ export function noteApiKeyOutcome(providerName: string, provider: OcxProviderCon
   const key = `${providerName}\0${entry.id}`;
   observations.delete(key);
   observations.set(key, {
-    identity: identity(provider, entry),
+    identity: identity(providerName, provider, entry),
     successes: previous.successes + (failure ? 0 : 1),
     failures: previous.failures + (failure ? 1 : 0),
-    reliability: previous.reliability * 0.8 + (failure ? 0 : 0.2),
+    reliability: failure && failure !== "rate" ? Math.min(0.1, previous.reliability * 0.8)
+      : previous.reliability * 0.8 + (failure ? 0 : 0.2),
     lastUsedAt: now,
     ...(failure ? { lastFailure: failure } : {}),
   });

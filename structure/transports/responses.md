@@ -734,7 +734,8 @@ pins both ladder shapes against exactly that.
 
 `src/providers/key-health.ts` anahtarın gerçek HTTP kabul ve anahtara özgü ret
 sonuçlarını tutar. Başarı yanıtın tamamlandığı anlamına gelmez. Yakın sonuçlar
-0,8/0,2 ağırlıkla güncellenir; eski kanıt altı saatlik yarı ömürle nötr puana yaklaşır.
+0,8/0,2 ağırlıkla güncellenir; kimlik/bakiye/kota reddi puanı en çok 0,1 yapar.
+Eski kanıt altı saatlik yarı ömürle nötr puana yaklaşır.
 `key-health.json` yalnızca kimlik özeti, sayaç ve zamanı saklar; en çok 1024 gözlem
 tutulur. Tarihçenin okunması veya yazılması başarısız olursa istek durdurulmaz.
 
@@ -762,3 +763,6 @@ sırlar temizlenerek `error.details` altında kalır. Combo ara yanıtları dön
 sınırı ayrı açıklanır. 429 gövdesi kota tükenmesini açıkça bildiriyorsa hız beklemesi
 olarak sınıflandırılmaz. Native Chat son hata açıklamasını aynı kaynaktan alır.
 Akış başladıktan sonraki SSE olayları bu HTTP dönüşümünün kapsamına girmez.
+
+
+Canlı keşif kaynağı, eski/hazır liste ayrımı ve model kaydı doğrulaması [model kimliği sözleşmesinde](../catalog.md#doğrulanabilir-sağlayıcı-model-kimlikleri) tanımlanır.

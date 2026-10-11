@@ -4,6 +4,20 @@ import type { TKey } from "./en";
  * French i18n catalog. Must match the `TKey` set.
  */
 export const fr: Record<TKey, string> = {
+  "pws.discovery.refresh": "Obtenir la liste en direct",
+  "pws.discovery.loading": "Chargement de la liste…",
+  "pws.discovery.live": "Liste en direct du fournisseur",
+  "pws.discovery.cached": "Liste obtenue précédemment",
+  "pws.discovery.preset": "Liste intégrée ; découverte en direct échouée",
+  "pws.discovery.unavailable": "Aucune liste disponible",
+  "pws.discovery.failed": "Liste indisponible. Vérifiez l’adresse API et la clé, puis réessayez. La liste précédente est conservée.",
+  "pws.discovery.manual": "Découverte automatique désactivée. Utilisez le bouton pour un chargement unique.",
+  "pws.discovery.pick": "Choisissez un identifiant réel du fournisseur :",
+  "pws.discovery.corrected": "Identifiant chez le fournisseur :",
+  "pws.discovery.unknown": "Ce nom est absent. Choisissez une suggestion ou actualisez la liste.",
+  "pws.discovery.setDefault": "Utiliser comme modèle par défaut",
+  "pws.discovery.saveFailed": "Modèle par défaut non enregistré. Réessayez.",
+
   "usage.incomplete": "Certains enregistrements d’utilisation n’ont pas pu être inclus. Les totaux, dates et classements reposent uniquement sur les enregistrements lisibles.",
   "models.pickerOrder.usageIncomplete": "Impossible d’enregistrer l’ordre par utilisation : l’historique est incomplet. Choisissez un autre ordre ou réparez d’abord l’historique.",
   "api.attribution.noRecordedUse": "Aucune utilisation dans les enregistrements lisibles",

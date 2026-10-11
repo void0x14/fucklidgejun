@@ -2,6 +2,20 @@ import type { TKey } from "./en";
 
 /** Traditional Chinese (Taiwan) UI strings — keys must match `en.ts` 1:1. */
 export const zhTW: Record<TKey, string> = {
+  "pws.discovery.refresh": "取得即時模型清單",
+  "pws.discovery.loading": "正在取得清單…",
+  "pws.discovery.live": "供應商即時清單",
+  "pws.discovery.cached": "先前取得的清單",
+  "pws.discovery.preset": "內建清單；即時探索失敗",
+  "pws.discovery.unavailable": "沒有模型清單",
+  "pws.discovery.failed": "無法取得清單。請檢查 API 位址與金鑰後重試。保留先前的清單。",
+  "pws.discovery.manual": "自動探索已關閉。按鈕可取得一次。",
+  "pws.discovery.pick": "選擇供應商的實際模型 ID：",
+  "pws.discovery.corrected": "供應商模型 ID：",
+  "pws.discovery.unknown": "清單中沒有此名稱。請選擇建議的模型或重新整理清單。",
+  "pws.discovery.setDefault": "設為預設模型",
+  "pws.discovery.saveFailed": "預設模型儲存失敗。請重試。",
+
   "usage.incomplete": "部分用量記錄無法納入。次數、日期和排名僅反映可讀取的記錄。",
   "models.pickerOrder.usageIncomplete": "用量歷史不完整，無法儲存最常用排序。請選擇其他排序或先修復歷史記錄。",
   "api.attribution.noRecordedUse": "可讀取的記錄中沒有使用記錄",

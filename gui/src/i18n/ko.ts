@@ -4,6 +4,20 @@ import type { TKey } from "./en";
  * Korean i18n catalog; must match the `TKey` set (compile-checked).
  */
 export const ko: Record<TKey, string> = {
+  "pws.discovery.refresh": "실시간 모델 목록 가져오기",
+  "pws.discovery.loading": "목록 가져오는 중…",
+  "pws.discovery.live": "제공자 실시간 목록",
+  "pws.discovery.cached": "이전에 가져온 목록",
+  "pws.discovery.preset": "기본 목록: 실시간 검색 실패",
+  "pws.discovery.unavailable": "모델 목록 없음",
+  "pws.discovery.failed": "목록을 가져오지 못했습니다. API 주소와 키를 확인하고 다시 시도하세요. 이전 목록은 유지됩니다.",
+  "pws.discovery.manual": "자동 검색이 꺼져 있습니다. 버튼으로 한 번 가져오세요.",
+  "pws.discovery.pick": "제공자의 실제 모델 ID 선택:",
+  "pws.discovery.corrected": "제공자 모델 ID:",
+  "pws.discovery.unknown": "목록에 없는 이름입니다. 제안된 모델을 선택하거나 목록을 새로 고치세요.",
+  "pws.discovery.setDefault": "기본 모델로 사용",
+  "pws.discovery.saveFailed": "기본 모델을 저장하지 못했습니다. 다시 시도하세요.",
+
   "usage.incomplete": "일부 사용량 기록을 집계하지 못했습니다. 횟수, 날짜, 순위는 읽을 수 있는 기록만 반영합니다.",
   "models.pickerOrder.usageIncomplete": "사용량 이력이 불완전해 많이 사용한 순서를 저장할 수 없습니다. 다른 순서를 선택하거나 이력을 복구하세요.",
   "api.attribution.noRecordedUse": "읽을 수 있는 기록에 사용 내역 없음",

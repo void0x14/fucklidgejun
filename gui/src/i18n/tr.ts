@@ -5,6 +5,20 @@ import type { TKey } from "./en";
  * Turkish i18n catalog. Must match the `TKey` set (compile-checked).
  */
 export const tr: Record<TKey, string> = {
+  "pws.discovery.refresh": "Canlı model listesini al",
+  "pws.discovery.loading": "Model listesi alınıyor…",
+  "pws.discovery.live": "Sağlayıcıdan canlı liste",
+  "pws.discovery.cached": "Daha önce alınan liste",
+  "pws.discovery.preset": "Hazır liste; canlı keşif yapılamadı",
+  "pws.discovery.unavailable": "Model listesi yok",
+  "pws.discovery.failed": "Liste alınamadı. API adresini ve anahtarını kontrol edip yeniden dene. Önceki liste korunuyor.",
+  "pws.discovery.manual": "Otomatik keşif kapalı. Bir kez almak için düğmeyi kullan.",
+  "pws.discovery.pick": "Sağlayıcının gerçek model kimliğini seç:",
+  "pws.discovery.corrected": "Sağlayıcıdaki model kimliği:",
+  "pws.discovery.unknown": "Bu ad listede yok. Önerilen modeli seç veya listeyi yenile.",
+  "pws.discovery.setDefault": "Varsayılan model olarak kullan",
+  "pws.discovery.saveFailed": "Varsayılan model kaydedilemedi. Yeniden dene.",
+
   "usage.incomplete": "Bazı kullanım kayıtları dahil edilemedi. Sayılar, tarihler ve sıralamalar yalnızca okunabilir kayıtlara dayanır.",
   "models.pickerOrder.usageIncomplete": "Kullanım geçmişi eksik olduğundan en çok kullanılan sıralaması kaydedilemiyor. Başka bir sıralama seçin veya önce geçmişi onarın.",
   "api.attribution.noRecordedUse": "Okunabilir kayıtlarda kullanım yok",

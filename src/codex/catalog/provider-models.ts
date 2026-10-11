@@ -108,6 +108,8 @@ import { captureProviderGather, materializeCapturedHeaders } from "./gather-capt
 export interface ProviderModelsResult {
   readonly models: CatalogModel[];
   readonly outcome: CatalogGatherProviderModelOutcome;
+  /** Yalnızca gerçek keşif yanıtından; kayıtlı veya üretilmiş alias satırları dahil değildir. */
+  readonly verifiedModelIds?: readonly string[];
 }
 export const refreshingModelsAuthResolver: ModelsAuthResolver = { kind: "refreshing" };
 
@@ -145,7 +147,9 @@ export async function fetchProviderModelsWithAuth(
   const observed = (
     models: CatalogModel[],
     state: CatalogGatherProviderModelOutcome["state"],
-  ): ProviderModelsResult => ({ models, outcome: { provider: name, state } });
+    verifiedModelIds?: readonly string[],
+  ): ProviderModelsResult => ({ models, outcome: { provider: name, state },
+    ...(verifiedModelIds ? { verifiedModelIds } : {}) });
   // Capture before any credential refresh or outbound await. OAuth account changes clear this
   // generation, so a request started with the former account cannot later publish its result.
   const cacheGeneration = captureModelCacheGeneration(name);
@@ -262,7 +266,7 @@ export async function fetchProviderModelsWithAuth(
         return observed(withConfiguredRetention(configured), "degraded");
       }
       markProviderDiscoveryOk(name, live.models.length);
-      return observed(withConfiguredRetention(forCache, { warnDrops: true }), "authoritative");
+      return observed(withConfiguredRetention(forCache, { warnDrops: true }), "authoritative", [...live.models]);
     }
     if (isCurrentCacheGeneration()) {
       markModelsFetchFailure(name);
@@ -330,7 +334,7 @@ export async function fetchProviderModelsWithAuth(
         return observed(withConfiguredRetention(configured), "degraded");
       }
       markProviderDiscoveryOk(name, liveResult.models.length);
-      return observed(withConfiguredRetention(forCache), "authoritative");
+      return observed(withConfiguredRetention(forCache), "authoritative", [...liveResult.models]);
     }
     if (isCurrentCacheGeneration()) {
       markModelsFetchFailure(name);
@@ -388,7 +392,7 @@ export async function fetchProviderModelsWithAuth(
       // (devlog 260828_cursor_umbrella_catalog; union with static evidence).
       recordLiveCursorMaxModeModels(liveResult.maxModeModels ?? []);
       markProviderDiscoveryOk(name, liveResult.models.length);
-      return observed(withConfiguredRetention(forCache, { warnDrops: true }), "authoritative");
+      return observed(withConfiguredRetention(forCache, { warnDrops: true }), "authoritative", [...liveResult.models]);
     }
     if (isCurrentCacheGeneration()) {
       markModelsFetchFailure(name);
@@ -565,7 +569,7 @@ export async function fetchProviderModelsWithAuth(
         cacheGeneration,
       });
       markProviderDiscoveryOk(name, live.length);
-      return observed(withConfiguredRetention(forCache, { warnDrops: true }), "authoritative");
+      return observed(withConfiguredRetention(forCache, { warnDrops: true }), "authoritative", antigravity.map(model => model.id));
     }
     const googleAiStudio = effectiveGoogleMode(name, prov) === "ai-studio"
       ? extractGoogleAiStudioModelItems(bounded.value, discovery.maxModels)
@@ -631,6 +635,7 @@ export async function fetchProviderModelsWithAuth(
     // Capture the count BEFORE the alias/configured augmentation below pushes extra rows into
     // `live`; otherwise configured entries would be reported as discovered ones.
     const liveModelCount = live.length;
+    const verifiedModelIds = items.map(model => model.id);
     // Dated-release aliases + configured retention (compat allow-list, combo targets,
     // Vertex default). Cache without combo retention so a later gather re-applies the
     // current capture's retain set on read (warm-cache OCX-111 / #1308).
@@ -648,7 +653,7 @@ export async function fetchProviderModelsWithAuth(
       return observed(withConfiguredRetention(configured), "degraded");
     }
     markProviderDiscoveryOk(name, liveModelCount);
-    return observed(returned, "authoritative");
+    return observed(returned, "authoritative", verifiedModelIds);
   } catch (error) {
     if (error instanceof ProviderOutboundPolicyError) {
       const { models, fallback, shouldLog } = failedDiscoveryFallback({ reason: "blocked" });

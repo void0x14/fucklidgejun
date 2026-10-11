@@ -6,6 +6,20 @@
  * `{var}` are plain interpolations.
  */
 export const en = {
+  "pws.discovery.refresh": "Get live model list",
+  "pws.discovery.loading": "Fetching model list…",
+  "pws.discovery.live": "Live provider list",
+  "pws.discovery.cached": "Previously fetched list",
+  "pws.discovery.preset": "Built-in list; live discovery failed",
+  "pws.discovery.unavailable": "No model list available",
+  "pws.discovery.failed": "The list could not be fetched. Check the API address and key; retry. The previous list is kept.",
+  "pws.discovery.manual": "Automatic discovery is off. Use the button to fetch once.",
+  "pws.discovery.pick": "Choose a real provider model ID:",
+  "pws.discovery.corrected": "Provider model ID:",
+  "pws.discovery.unknown": "This name is not in the list. Choose a suggested model or refresh the list.",
+  "pws.discovery.setDefault": "Use as default model",
+  "pws.discovery.saveFailed": "The default model could not be saved. Retry.",
+
   "usage.incomplete": "Some usage records could not be included. Counts, dates, and rankings reflect readable records only.",
   "models.pickerOrder.usageIncomplete": "Cannot save most-used order because usage history is incomplete. Choose another order or repair the history first.",
   "api.attribution.noRecordedUse": "No use in readable records",

@@ -155,3 +155,6 @@ Translated audio/file admission follows the [final-adapter input contract](../ad
 Canonical Responses identity sanitation and narrowly scoped pre-output combo recovery follow [request-local target compatibility](../runtime.md#request-local-target-compatibility); other adapter contracts remain unchanged.
 
 Son HTTP hata yanıtının Türkçe açıklaması ve korunmuş makine alanları [hata sözleşmesinde](../transports/responses.md#son-hata-açıklaması) tanımlanır.
+
+
+Canlı keşif kaynağı, eski/hazır liste ayrımı ve model kaydı doğrulaması [model kimliği sözleşmesinde](../catalog.md#doğrulanabilir-sağlayıcı-model-kimlikleri) tanımlanır.

@@ -655,3 +655,6 @@ sayaçlarını, seçim puanını ve cooldown sonunu ekler; credential özeti dı
 Sonuçlar sekme açıkken yenilenir; hesap/yerel sağlayıcıya sahte key seçimi sunulmaz.
 
 Son HTTP hata yanıtının Türkçe açıklaması ve korunmuş makine alanları [hata sözleşmesinde](transports/responses.md#son-hata-açıklaması) tanımlanır.
+
+
+Canlı keşif kaynağı, eski/hazır liste ayrımı ve model kaydı doğrulaması [model kimliği sözleşmesinde](catalog.md#doğrulanabilir-sağlayıcı-model-kimlikleri) tanımlanır.

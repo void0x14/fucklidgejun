@@ -5,6 +5,20 @@ import type { TKey } from "./en";
  * German i18n catalog, generated from en.ts. Must match the `TKey` set (compile-checked).
  */
 export const de: Record<TKey, string> = {
+  "pws.discovery.refresh": "Live-Modellliste abrufen",
+  "pws.discovery.loading": "Modellliste wird abgerufen…",
+  "pws.discovery.live": "Live-Liste des Anbieters",
+  "pws.discovery.cached": "Zuvor abgerufene Liste",
+  "pws.discovery.preset": "Vorgabeliste; Live-Abfrage fehlgeschlagen",
+  "pws.discovery.unavailable": "Keine Modellliste verfügbar",
+  "pws.discovery.failed": "Liste nicht abrufbar. API-Adresse und Schlüssel prüfen und erneut versuchen. Die bisherige Liste bleibt erhalten.",
+  "pws.discovery.manual": "Automatische Erkennung ist aus. Einmalig über die Schaltfläche abrufen.",
+  "pws.discovery.pick": "Eine echte Modell-ID des Anbieters wählen:",
+  "pws.discovery.corrected": "Modell-ID beim Anbieter:",
+  "pws.discovery.unknown": "Dieser Name fehlt in der Liste. Vorschlag wählen oder Liste aktualisieren.",
+  "pws.discovery.setDefault": "Als Standardmodell verwenden",
+  "pws.discovery.saveFailed": "Standardmodell nicht gespeichert. Erneut versuchen.",
+
   "usage.incomplete": "Einige Nutzungsdatensätze konnten nicht berücksichtigt werden. Anzahlen, Datumsangaben und Ranglisten beruhen nur auf lesbaren Datensätzen.",
   "models.pickerOrder.usageIncomplete": "Die Reihenfolge nach Nutzung kann wegen unvollständiger Nutzungsdaten nicht gespeichert werden. Wählen Sie eine andere Reihenfolge oder reparieren Sie zuerst den Verlauf.",
   "api.attribution.noRecordedUse": "Keine Nutzung in lesbaren Datensätzen",

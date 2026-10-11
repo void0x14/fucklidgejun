@@ -57,3 +57,6 @@ Sağlayıcı Strateji sekmesi mevcut sekme satırı, Select ve Notice bileşenle
 kullanır. Davranış adları sade tutulur: Çalışanı seç, Sırayla paylaştır, Rastgele seç,
 En az kullanılanı seç ve Kotası önce yenilenecek olanı seç. Gerçek gözlem bulunmayan
 anahtarın puanı başarı kanıtı gibi gösterilmez.
+
+
+Canlı keşif kaynağı, eski/hazır liste ayrımı ve model kaydı doğrulaması [model kimliği sözleşmesinde](catalog.md#doğrulanabilir-sağlayıcı-model-kimlikleri) tanımlanır.

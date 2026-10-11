@@ -163,3 +163,6 @@ Sağlayıcı anahtar seçimi ve öğrenilen sonuçlar `src/providers/key-failove
 [anahtar kurtarma akışında](../transports/responses.md#sağlayıcı-anahtar-kurtarma) açıklanır.
 
 Son HTTP hata yanıtının Türkçe açıklaması ve korunmuş makine alanları [hata sözleşmesinde](../transports/responses.md#son-hata-açıklaması) tanımlanır.
+
+
+Canlı keşif kaynağı, eski/hazır liste ayrımı ve model kaydı doğrulaması [model kimliği sözleşmesinde](../catalog.md#doğrulanabilir-sağlayıcı-model-kimlikleri) tanımlanır.

@@ -4,6 +4,20 @@ import type { TKey } from "./en";
  * Japanese i18n catalog; must match the `TKey` set (compile-checked).
  */
 export const ja: Record<TKey, string> = {
+  "pws.discovery.refresh": "モデル一覧を取得",
+  "pws.discovery.loading": "一覧を取得中…",
+  "pws.discovery.live": "プロバイダーの最新一覧",
+  "pws.discovery.cached": "以前取得した一覧",
+  "pws.discovery.preset": "組み込み一覧：最新の取得に失敗",
+  "pws.discovery.unavailable": "モデル一覧なし",
+  "pws.discovery.failed": "一覧を取得できません。API アドレスとキーを確認して再試行してください。以前の一覧は保持されます。",
+  "pws.discovery.manual": "自動取得は無効です。ボタンで一度取得できます。",
+  "pws.discovery.pick": "プロバイダーの実際のモデル ID を選択：",
+  "pws.discovery.corrected": "プロバイダーのモデル ID：",
+  "pws.discovery.unknown": "この名前は一覧にありません。候補を選ぶか一覧を更新してください。",
+  "pws.discovery.setDefault": "既定のモデルに設定",
+  "pws.discovery.saveFailed": "既定モデルを保存できません。再試行してください。",
+
   "usage.incomplete": "一部の使用履歴を集計できませんでした。回数、日付、順位は読み取れる記録のみを反映しています。",
   "models.pickerOrder.usageIncomplete": "使用履歴が不完全なため、使用回数順を保存できません。別の順序を選ぶか、履歴を修復してください。",
   "api.attribution.noRecordedUse": "読み取れる記録に使用履歴なし",

@@ -4,6 +4,20 @@ import type { TKey } from "./en";
  * Russian i18n catalog; must match the `TKey` set (compile-checked).
  */
 export const ru: Record<TKey, string> = {
+  "pws.discovery.refresh": "Получить список моделей",
+  "pws.discovery.loading": "Загрузка списка…",
+  "pws.discovery.live": "Живой список провайдера",
+  "pws.discovery.cached": "Ранее полученный список",
+  "pws.discovery.preset": "Встроенный список; обнаружение не удалось",
+  "pws.discovery.unavailable": "Список моделей недоступен",
+  "pws.discovery.failed": "Список не получен. Проверьте адрес API и ключ и повторите. Предыдущий список сохранён.",
+  "pws.discovery.manual": "Автообнаружение выключено. Кнопка загружает список один раз.",
+  "pws.discovery.pick": "Выберите настоящий идентификатор модели:",
+  "pws.discovery.corrected": "Идентификатор у провайдера:",
+  "pws.discovery.unknown": "Имени нет в списке. Выберите предложенную модель или обновите список.",
+  "pws.discovery.setDefault": "Использовать по умолчанию",
+  "pws.discovery.saveFailed": "Модель по умолчанию не сохранена. Повторите.",
+
   "usage.incomplete": "Часть записей об использовании не удалось учесть. Счётчики, даты и рейтинги основаны только на читаемых записях.",
   "models.pickerOrder.usageIncomplete": "Нельзя сохранить порядок по частоте использования: история неполная. Выберите другой порядок или сначала восстановите историю.",
   "api.attribution.noRecordedUse": "В читаемых записях использование не найдено",

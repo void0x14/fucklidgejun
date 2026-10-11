@@ -157,3 +157,6 @@ Provider-scoped approval reviewer settings are projected by the [catalog owner](
 Sağlayıcı anahtar seçimi ve öğrenilen sonuçlar `src/providers/key-failover.ts` ile
 `src/providers/key-health.ts` tarafından yürütülür. Ayrıntılı sözleşme
 [anahtar kurtarma akışında](transports/responses.md#sağlayıcı-anahtar-kurtarma) açıklanır.
+
+
+Canlı keşif kaynağı, eski/hazır liste ayrımı ve model kaydı doğrulaması [model kimliği sözleşmesinde](catalog.md#doğrulanabilir-sağlayıcı-model-kimlikleri) tanımlanır.

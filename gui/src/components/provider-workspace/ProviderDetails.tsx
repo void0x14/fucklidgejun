@@ -315,6 +315,7 @@ export default function ProviderDetails({
             modelRevision={modelRevision}
             modelRowsReady={modelRowsReady}
             onOpenModels={onOpenModels}
+            onUpdateProvider={onUpdateProvider}
             modelsLoading={modelsLoading}
             modelsLoadFailed={modelsLoadFailed}
             needsReauth={

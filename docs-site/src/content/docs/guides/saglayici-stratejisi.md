@@ -39,3 +39,24 @@ Kurtarma bittikten sonra API yanıtı sorunun nedenini ve yapacağın işi Türk
 bulunamadıysa canlı listeden model seçmen istenir. İçerik politikası retleri anahtar
 arızası sayılmaz. HTTP durumu ve hata kodu korunur; temizlenmiş özgün açıklama
 `error.details` altında bulunur. Başlamış akıştaki olaylar ayrı bir sınırdır.
+
+## Modeli sağlayıcının adıyla seç
+
+**Sağlayıcılar → sağlayıcın → Modeller → Canlı model listesini al** yolunu kullan.
+Liste canlı sonuç mu, daha önce alınan liste mi, hazır liste mi açıkça görünür.
+Keşif başarısız olursa kullanılabilir eski liste korunur ve düzelteceğin ayar söylenir.
+Otomatik keşif kapalıysa sadece düğmeye bastığında bir kez canlı okuma yapılır.
+
+Gerçek model kimliklerinden birine tıkla. Yazdığın kimlik listedeki tek modele
+eşleşiyorsa gerçek yazımı kullanılır; hayalî ön ek veya son ek üretilmez. Eşleşme
+yoksa kayıt engellenir ve gerçek kimlikler gösterilir. Aynı kontrol API üzerinden
+yapılan özel model kayıtlarında da geçerlidir. Hazır liste canlı onay değildir;
+model listede olsa da sağlayıcının erişim, kota veya geçici sunucu hatası sürebilir.
+
+## Arayüz görüntüleri
+
+Aşağıdaki görüntüler gerçek React bileşenlerinin örnek verilerle görüntüsüdür.
+Canlı sağlayıcıya istek gönderildiği veya kurtarmanın uçtan uca denendiği anlamına gelmez.
+
+![Sağlayıcının Strateji sekmesi](/screenshots/saglayici-stratejisi.png)
+![Gerçek model kimliğini seçme arayüzü](/screenshots/saglayici-modelleri.png)
