@@ -6,6 +6,9 @@ import { loadConfig, saveConfig } from "../../src/config";
 import { routedProviderConfig } from "../../src/router";
 import { MINIMAX_CN_BASE_URL, MINIMAX_INTL_BASE_URL } from "../../src/providers/base-url-choices";
 import { detectProviderKeyRegions, providerDeclaredRegionEndpoints } from "../../src/providers/region-detect";
+import { selectProactiveApiKeyTransport } from "../../src/providers/key-failover";
+import { providerApiKeySelectionIsCurrent } from "../../src/providers/api-key-selection";
+import { routedProviderConfig as routeRow } from "../../src/router";
 import type { OcxConfig, OcxProviderConfig } from "../../src/types";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 
@@ -134,5 +137,34 @@ describe("detectProviderKeyRegions", () => {
     const detection = await detectProviderKeyRegions(config, "p", { fetchImpl: spy });
     expect(detection.status).toBe("unsupported");
     expect(called).toBe(false);
+  });
+});
+
+describe("round-robin across a mixed-region pool", () => {
+  test("every pick is dispatched to its own detected host and the dispatch gate accepts it", () => {
+    const config = configWith({
+      apiKey: "cn-1",
+      apiKeyPoolStrategy: "round-robin",
+      apiKeyPool: [
+        { id: "cn1", key: "cn-1", baseUrl: MINIMAX_CN_BASE_URL },
+        { id: "gl1", key: "gl-1", baseUrl: MINIMAX_INTL_BASE_URL },
+        { id: "cn2", key: "cn-2", baseUrl: MINIMAX_CN_BASE_URL },
+      ],
+    });
+    let routed = routeRow("minimax-cn", config.providers["minimax-cn"]!);
+    expect(routed.baseUrl).toBe(MINIMAX_CN_BASE_URL);
+
+    const seen: Array<{ key: string; baseUrl: string }> = [];
+    for (let i = 0; i < 6; i += 1) {
+      const picked = selectProactiveApiKeyTransport(config, "minimax-cn", routed) ?? routed;
+      routed = picked;
+      seen.push({ key: picked.apiKey!, baseUrl: picked.baseUrl! });
+      // The dispatch gate must not collapse a per-key endpoint back onto the provider row.
+      expect(providerApiKeySelectionIsCurrent(config, "minimax-cn", picked)).toBe(true);
+      const expected = picked.apiKey === "gl-1" ? MINIMAX_INTL_BASE_URL : MINIMAX_CN_BASE_URL;
+      expect(picked.baseUrl).toBe(expected);
+    }
+    // Round-robin actually cycled the pool rather than pinning one key.
+    expect(new Set(seen.map(row => row.key)).size).toBeGreaterThanOrEqual(2);
   });
 });

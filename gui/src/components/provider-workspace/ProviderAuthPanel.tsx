@@ -743,7 +743,9 @@ export default function ProviderAuthPanel({
                   <p className="muted small" role="status" style={{ marginTop: 4 }}>
                     {regionResult.unresolved > 0
                       ? t("pws.detectRegionsResultMixed", { detected: regionResult.detected, unresolved: regionResult.unresolved })
-                      : t("pws.detectRegionsResult", { detected: regionResult.detected })}
+                      : regionResult.detected > 0
+                        ? t("pws.detectRegionsResult", { detected: regionResult.detected })
+                        : t("pws.detectRegionsResultNone")}
                   </p>
                 )}
               </div>

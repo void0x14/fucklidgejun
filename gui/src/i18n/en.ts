@@ -1363,6 +1363,7 @@ export const en = {
   "pws.detectRegions": "Detect regions",
   "pws.detectingRegions": "Detecting regions…",
   "pws.detectRegionsResult": "Detected {detected} key(s)",
+  "pws.detectRegionsResultNone": "All keys already have a detected region",
   "pws.detectRegionsResultMixed": "Detected {detected} key(s); {unresolved} could not be matched to a host",
   "pws.authMode": "Auth mode",
   "pws.availableAccounts": "Available accounts",

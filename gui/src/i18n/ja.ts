@@ -1261,6 +1261,7 @@ export const ja: Record<TKey, string> = {
   "pws.detectRegions": "リージョンを検出",
   "pws.detectingRegions": "リージョンを検出中…",
   "pws.detectRegionsResult": "{detected} 件のキーを検出しました",
+  "pws.detectRegionsResultNone": "すべてのキーのリージョンは検出済みです",
   "pws.detectRegionsResultMixed": "{detected} 件のキーを検出しました。{unresolved} 件はホストに紐付けできませんでした",
   "pws.authMode": "認証モード",
   "pws.availableAccounts": "利用可能なアカウント",

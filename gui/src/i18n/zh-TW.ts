@@ -1128,6 +1128,7 @@ export const zhTW: Record<TKey, string> = {
   "pws.detectRegions": "偵測區域",
   "pws.detectingRegions": "正在偵測區域…",
   "pws.detectRegionsResult": "已偵測 {detected} 個金鑰",
+  "pws.detectRegionsResultNone": "所有金鑰皆已偵測到區域",
   "pws.detectRegionsResultMixed": "已偵測 {detected} 個金鑰；{unresolved} 個無法對應到主機",
   "pws.authMode": "認證方式",
   "pws.availableAccounts": "可用帳號",

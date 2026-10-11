@@ -2178,6 +2178,7 @@ export const zh: Record<TKey, string> = {
   "pws.detectRegions": "检测区域",
   "pws.detectingRegions": "正在检测区域…",
   "pws.detectRegionsResult": "已检测 {detected} 个密钥",
+  "pws.detectRegionsResultNone": "所有密钥均已检测到区域",
   "pws.detectRegionsResultMixed": "已检测 {detected} 个密钥；{unresolved} 个无法匹配到主机",
   "pws.authMode": "认证方式",
   "pws.availableAccounts": "可用账户",

@@ -1350,6 +1350,7 @@ export const tr: Record<TKey, string> = {
   "pws.detectRegions": "Bölgeleri tespit et",
   "pws.detectingRegions": "Bölgeler tespit ediliyor…",
   "pws.detectRegionsResult": "{detected} anahtar tespit edildi",
+  "pws.detectRegionsResultNone": "Tüm anahtarların bölgesi zaten tespit edilmiş",
   "pws.detectRegionsResultMixed": "{detected} anahtar tespit edildi, {unresolved} tanesi bir sunucuyla eşleştirilemedi",
   "pws.authMode": "Kimlik doğrulama modu",
   "pws.availableAccounts": "Mevcut hesaplar",

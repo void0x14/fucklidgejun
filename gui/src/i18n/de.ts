@@ -2158,6 +2158,7 @@ export const de: Record<TKey, string> = {
   "pws.detectRegions": "Regionen erkennen",
   "pws.detectingRegions": "Regionen werden erkannt…",
   "pws.detectRegionsResult": "{detected} Schlüssel erkannt",
+  "pws.detectRegionsResultNone": "Alle Schlüssel haben bereits eine erkannte Region",
   "pws.detectRegionsResultMixed": "{detected} Schlüssel erkannt; {unresolved} konnten keinem Host zugeordnet werden",
   "pws.authMode": "Auth-Modus",
   "pws.availableAccounts": "Verfügbare Konten",

@@ -1331,6 +1331,7 @@ export const ru: Record<TKey, string> = {
   "pws.detectRegions": "Определить регионы",
   "pws.detectingRegions": "Определение регионов…",
   "pws.detectRegionsResult": "Обнаружено ключей: {detected}",
+  "pws.detectRegionsResultNone": "У всех ключей регион уже определён",
   "pws.detectRegionsResultMixed": "Обнаружено ключей: {detected}; {unresolved} не удалось привязать к хосту",
   "pws.authMode": "Режим аутентификации",
   "pws.availableAccounts": "Доступные аккаунты",

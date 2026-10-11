@@ -1336,6 +1336,7 @@ export const fr: Record<TKey, string> = {
   "pws.detectRegions": "Détecter les régions",
   "pws.detectingRegions": "Détection des régions…",
   "pws.detectRegionsResult": "{detected} clé(s) détectée(s)",
+  "pws.detectRegionsResultNone": "Toutes les clés ont déjà une région détectée",
   "pws.detectRegionsResultMixed": "{detected} clé(s) détectée(s) ; {unresolved} n'ont pas pu être associées à un hôte",
   "pws.authMode": "Mode d’authentification",
   "pws.availableAccounts": "Comptes disponibles",

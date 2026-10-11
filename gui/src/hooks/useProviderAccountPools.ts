@@ -336,9 +336,12 @@ export function useProviderAccountPools(deps: {
           } } : current);
           setAccountLoadStates(current => currentRequest() ? { ...current, [provider]: "ready" } : current);
         } else {
-          const data = await readRoster<{ activeId?: string | null; keys?: ApiKeyEntry[] }>(
+          const data = await readRoster<{ activeId?: string | null; keys?: ApiKeyEntry[]; endpoints?: KeyRegionEndpoint[] }>(
             `${apiBase}/api/providers/keys?name=${encodeURIComponent(provider)}`, signal);
           if (!Array.isArray(data.keys) || !currentRequest()) return false;
+          if (Array.isArray(data.endpoints)) {
+            setKeyEndpoints(current => currentRequest() ? { ...current, [provider]: data.endpoints as KeyRegionEndpoint[] } : current);
+          }
           const rows = selectionRows(data.keys, data.activeId);
           setKeyPools(current => currentRequest() ? { ...current, [provider]: mergeRosterRows(rows, current[provider] ?? []) } : current);
         }

@@ -2197,6 +2197,7 @@ export const ko: Record<TKey, string> = {
   "pws.detectRegions": "리전 감지",
   "pws.detectingRegions": "리전 감지 중…",
   "pws.detectRegionsResult": "키 {detected}개 감지됨",
+  "pws.detectRegionsResultNone": "모든 키의 리전이 이미 감지되었습니다",
   "pws.detectRegionsResultMixed": "키 {detected}개 감지됨; {unresolved}개는 호스트에 연결하지 못했습니다",
   "pws.authMode": "인증 방식",
   "pws.availableAccounts": "사용 가능한 계정",
