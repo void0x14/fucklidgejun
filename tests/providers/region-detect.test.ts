@@ -9,6 +9,7 @@ import { detectProviderKeyRegions, providerDeclaredRegionEndpoints } from "../..
 import { selectProactiveApiKeyTransport } from "../../src/providers/key-failover";
 import { providerApiKeySelectionIsCurrent } from "../../src/providers/api-key-selection";
 import { routedProviderConfig as routeRow } from "../../src/router";
+import { tryPickComboModel } from "../../src/combos/resolve";
 import type { OcxConfig, OcxProviderConfig } from "../../src/types";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 
@@ -166,5 +167,35 @@ describe("round-robin across a mixed-region pool", () => {
     }
     // Round-robin actually cycled the pool rather than pinning one key.
     expect(new Set(seen.map(row => row.key)).size).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("combo round-robin over a multi-region provider", () => {
+  test("the combo's chosen target still routes each pooled key to its own host", () => {
+    const config = configWith({
+      apiKey: "gl-1",
+      apiKeyPoolStrategy: "round-robin",
+      apiKeyPool: [
+        { id: "gl1", key: "gl-1", baseUrl: MINIMAX_INTL_BASE_URL },
+        { id: "cn1", key: "cn-1", baseUrl: MINIMAX_CN_BASE_URL },
+      ],
+    });
+    config.combos = {
+      mm: { strategy: "round-robin", targets: [{ provider: "minimax-cn", model: "MiniMax-M3", weight: 1 }] },
+    } as unknown as OcxConfig["combos"];
+
+    const pick = tryPickComboModel(config, "combo/mm");
+    expect(pick?.target.provider).toBe("minimax-cn");
+
+    // The combo target names a provider; the provider row still resolves the KEY's host.
+    const provider = config.providers[pick!.target.provider]!;
+    let routed = routeRow(pick!.target.provider, provider);
+    expect(routed.baseUrl).toBe(MINIMAX_INTL_BASE_URL);
+
+    for (let i = 0; i < 4; i += 1) {
+      const next = selectProactiveApiKeyTransport(config, pick!.target.provider, routed) ?? routed;
+      routed = next;
+      expect(next.baseUrl).toBe(next.apiKey === "gl-1" ? MINIMAX_INTL_BASE_URL : MINIMAX_CN_BASE_URL);
+    }
   });
 });
