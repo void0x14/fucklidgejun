@@ -387,3 +387,5 @@ Renamed fixed-key providers receive [missing reasoning metadata](catalog.md#rena
 Sağlayıcı anahtar seçimi ve öğrenilen sonuçlar `src/providers/key-failover.ts` ile
 `src/providers/key-health.ts` tarafından yürütülür. Ayrıntılı sözleşme
 [anahtar kurtarma akışında](transports/responses.md#sağlayıcı-anahtar-kurtarma) açıklanır.
+
+Son HTTP hata yanıtının Türkçe açıklaması ve korunmuş makine alanları [hata sözleşmesinde](transports/responses.md#son-hata-açıklaması) tanımlanır.

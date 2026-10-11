@@ -653,3 +653,5 @@ PATCH akışında kaydedilir ve kaydın yanıtı alınmadan başarı gösterilme
 `src/server/management/oauth-account-routes.ts` anahtar listesine kabul/ret
 sayaçlarını, seçim puanını ve cooldown sonunu ekler; credential özeti dışarı verilmez.
 Sonuçlar sekme açıkken yenilenir; hesap/yerel sağlayıcıya sahte key seçimi sunulmaz.
+
+Son HTTP hata yanıtının Türkçe açıklaması ve korunmuş makine alanları [hata sözleşmesinde](transports/responses.md#son-hata-açıklaması) tanımlanır.

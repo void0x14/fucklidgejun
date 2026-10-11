@@ -42,6 +42,7 @@ import {
 } from "../providers/key-failover";
 import { classifyKeyScopedResponse, keyScopedRecoveryKind } from "../providers/key-failure-class";
 import { noteApiKeyOutcome } from "../providers/key-health";
+import { providerFailureMessage } from "../providers/failure-guidance";
 import { fastPolicyForModel } from "../providers/service-tier";
 import { providerApiKeySelectionIsCurrent, resolveCurrentProviderApiKeyTransport } from "../providers/api-key-selection";
 import { enrichOpenCodeZenFreeTierMessage } from "../providers/opencode-zen-rate-limit";
@@ -220,7 +221,7 @@ export async function handleNativeChatCompletions(options: HandleNativeChatOptio
   const fail = (status: number, message: string, type?: string, code?: string | null): Response => {
     const safeMessage = redactSecretString(message);
     finishLog(status, safeMessage);
-    return chatCompletionsErrorResponse(status, safeMessage, type, code);
+    return chatCompletionsErrorResponse(status, status === 499 ? safeMessage : providerFailureMessage(status, safeMessage), type, code);
   };
 
   normalizePinnedChatEffort(options);

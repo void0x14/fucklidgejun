@@ -8,8 +8,8 @@
  * every key, so classifying it would burn the whole pool on one prompt and cool healthy keys.
  *
  * The rule is therefore deliberately conservative:
- * - 429 is a rate window, 401 a rejected credential, 402 an unpaid account. The status alone
- *   is the verdict.
+ * - 401 is a rejected credential, 402 an unpaid account. A 429 is a rate window unless
+ *   its bounded error body explicitly says the billing quota is exhausted.
  * - 403 and 400 count ONLY when the error's code or message names billing, quota, arrears or
  *   credit in one of the phrases providers actually send (DeepSeek, DashScope/Alibaba,
  *   Anthropic, OpenAI). A 403 or 400 with any other wording is left alone.
@@ -120,7 +120,7 @@ export function classifyKeyScopedFailure(
 /**
  * Classify a live upstream response without consuming it.
  *
- * 401/402/429 are decided by status alone, so their bodies are never touched. A 403/400 is read
+ * 401/402 are decided by status alone, so their bodies are never touched. A 429/403/400 is read
  * from a bounded clone: an oversized, undecodable, slow or aborted body fails closed (null), and
  * the original body is left for the caller to relay to the client unchanged.
  */
@@ -129,19 +129,19 @@ export async function classifyKeyScopedResponse(
   signal?: AbortSignal,
 ): Promise<KeyScopedFailureClass | null> {
   const status = response.status;
-  if (status === 401 || status === 402 || status === 429) return classifyKeyScopedFailure(status);
-  if (status !== 403 && status !== 400) return null;
-  if (response.bodyUsed) return null;
+  if (status === 401 || status === 402) return classifyKeyScopedFailure(status);
+  if (status !== 403 && status !== 400 && status !== 429) return null;
+  if (response.bodyUsed) return status === 429 ? "rate" : null;
   try {
     const body = await readBoundedResponseBody(response.clone(), {
       signal,
       maxBytes: KEY_FAILURE_BODY_MAX_BYTES,
       totalTimeoutMs: KEY_FAILURE_BODY_TIMEOUT_MS,
     });
-    if (!body.displaySafe || body.truncated) return null;
+    if (!body.displaySafe || body.truncated) return status === 429 ? "rate" : null;
     return classifyKeyScopedFailure(status, body.text);
   } catch {
-    return null;
+    return status === 429 ? "rate" : null;
   }
 }
 

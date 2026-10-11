@@ -752,3 +752,13 @@ döngüsünün kendi sınırı, iptal, çıktı başlangıcı ve tekrar güvenli
 Native Chat aynı isteğin bütçesine havuzdaki alternatifleri dahil eder.
 Kimlik/kota reddi sağlıklı diğer anahtarda tekrar edilir; istemci isteği hataları
 ve içerik politikası retleri anahtar hatası sayılmaz.
+
+## Son hata açıklaması
+
+`src/providers/failure-guidance.ts` son HTTP hata yanıtında Türkçe neden ve yapılacak
+işi sunar. Durum, makine kodu, tür, parametre ve Retry-After korunur; özgün mesaj
+sırlar temizlenerek `error.details` altında kalır. Combo ara yanıtları dönüştürülmez.
+İçerik politikası, model kimliği, düşünme ayarı, bağlam sınırı, bakiye, kota ve hız
+sınırı ayrı açıklanır. 429 gövdesi kota tükenmesini açıkça bildiriyorsa hız beklemesi
+olarak sınıflandırılmaz. Native Chat son hata açıklamasını aynı kaynaktan alır.
+Akış başladıktan sonraki SSE olayları bu HTTP dönüşümünün kapsamına girmez.

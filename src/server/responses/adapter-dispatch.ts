@@ -25,7 +25,6 @@ import {
   hasKeyPoolFailover,
   rotateProviderTransportOn401,
   rateLimitRetryDelayMs,
-  rotateProviderTransportOn429,
   rotateProviderTransportOnKeyFailure,
 } from "../../providers/key-failover";
 import { classifyKeyScopedResponse, keyScopedRecoveryKind } from "../../providers/key-failure-class";
@@ -653,7 +652,8 @@ export async function prepareAdapterExchange(
       // return null immediately, so this stays a no-op for them (src/providers/key-failover.ts).
       while (upstreamResponse.status === 429 && hasKeyPoolFailover(route.provider) && keyPoolHops < keyPoolHopCap) {
         keyPoolHops += 1;
-        const rotated = rotateProviderTransportOn429(config, route.providerName, route.provider, {
+        const failure = await classifyKeyScopedResponse(upstreamResponse, upstream.signal) ?? "rate";
+        const rotated = rotateProviderTransportOnKeyFailure(config, route.providerName, route.provider, failure, {
           retryAfter: upstreamResponse.headers.get("retry-after"),
           now: Date.now(),
           attemptedKey: route.provider.apiKey,
@@ -675,7 +675,7 @@ export async function prepareAdapterExchange(
           provider: route.provider,
           adapterName: transportState.activeAdapter.name,
         });
-        const result = await rebuildAndRefetch("key-429");
+        const result = await rebuildAndRefetch(keyScopedRecoveryKind(failure));
         if ("failed" in result) return result.failed;
         upstreamResponse = result;
       }

@@ -31,3 +31,11 @@ Eski fill-first ve quota ayarları korunur; seçilmişse arayüzde görünürler
 
 Bu değişiklik için test yazılmadı veya çalıştırılmadı. Derleme ve statik kontroller
 canlı sağlayıcıda uçtan uca doğrulama anlamına gelmez.
+
+## Son hata ne söylüyor?
+
+Kurtarma bittikten sonra API yanıtı sorunun nedenini ve yapacağın işi Türkçe söyler.
+Örneğin kota bittiyse kota yenilenmesini beklemen veya başka anahtar eklemen; model
+bulunamadıysa canlı listeden model seçmen istenir. İçerik politikası retleri anahtar
+arızası sayılmaz. HTTP durumu ve hata kodu korunur; temizlenmiş özgün açıklama
+`error.details` altında bulunur. Başlamış akıştaki olaylar ayrı bir sınırdır.
