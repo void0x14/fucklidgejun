@@ -381,7 +381,7 @@ outcome fields from an older server do not establish successful recovery.
 | `GET, POST, DELETE /api/providers/keys` | List masked provider keys, add/activate one, or remove one | 400 invalid input; 404 provider/key missing |
 | `PUT /api/providers/keys/active` | Select a provider's active key | 400 invalid input; 404 provider/key missing |
 | `PUT /api/providers/keys/alias` | Set or clear a provider-key alias | 400 invalid input; 404 provider/key missing |
-| `POST /api/providers/keys/refresh` | Collect verified keys from the provider's external key source and append the new ones to its pool | 400 invalid input or no `keySource` configured; 404 unknown provider |
+| `POST /api/providers/keys/refresh` | Collect verified keys from the provider's external key source and append the new ones to its pool | 400 invalid input or no `keySource` configured; 404 unknown provider; 502 key source unreachable or returned an error |
 | `GET, POST, PATCH, DELETE /api/keys` | List, create, edit, or delete data-plane admission keys | 400 invalid body/id; 404 key missing |
 
 Credential list responses are deliberately masked. OAuth access tokens and complete provider API

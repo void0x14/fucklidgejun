@@ -227,7 +227,7 @@ Güvenilir ilk model listesi hazır olana kadar `/api/selected-models` ve `/api/
 | `GET, POST, DELETE /api/providers/keys` | Maskelenmiş sağlayıcı anahtarlarını listeleyin, bir tane ekleyin/etkinleştirin veya kaldırın | 400 geçersiz girdi; 404 sağlayıcı/anahtar eksik |
 | `PUT /api/providers/keys/active` | Bir sağlayıcının etkin anahtarını seçin | 400 geçersiz girdi; 404 sağlayıcı/anahtar eksik |
 | `PUT /api/providers/keys/alias` | Bir sağlayıcı anahtarı takma adını ayarlayın veya temizleyin | 400 geçersiz girdi; 404 sağlayıcı/anahtar eksik |
-| `POST /api/providers/keys/refresh` | Sağlayıcının harici anahtar kaynağından doğrulanmış anahtarları toplayın ve yalnızca yenilerini havuza ekleyin | 400 geçersiz girdi veya `keySource` yapılandırılmamış; 404 bilinmeyen sağlayıcı |
+| `POST /api/providers/keys/refresh` | Sağlayıcının harici anahtar kaynağından doğrulanmış anahtarları toplayın ve yalnızca yenilerini havuza ekleyin | 400 geçersiz girdi veya `keySource` yapılandırılmamış; 404 bilinmeyen sağlayıcı; 502 anahtar kaynağına ulaşılamıyor veya hata döndürdü |
 | `GET, POST, PATCH, DELETE /api/keys` | Veri düzlemi kabul anahtarlarını listeleyin, oluşturun, düzenleyin veya silin | 400 geçersiz gövde/kimlik; 404 anahtar eksik |
 
 Kimlik bilgisi listesi yanıtları kasıtlı olarak maskelenir. OAuth erişim

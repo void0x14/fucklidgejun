@@ -180,7 +180,7 @@ Session 簽發在需要 data-plane 認證時停用，這包含遠端綁定。遠
 | `GET, POST, DELETE /api/providers/keys` | 列出遮罩供應商金鑰、新增／啟用一個或移除一個 | 400 無效輸入；404 供應商／金鑰缺失 |
 | `PUT /api/providers/keys/active` | 選擇供應商的現用金鑰 | 400 無效輸入；404 供應商／金鑰缺失 |
 | `PUT /api/providers/keys/alias` | 設定或清除供應商金鑰別名 | 400 無效輸入；404 供應商／金鑰缺失 |
-| `POST /api/providers/keys/refresh` | 從該供應商的外部金鑰來源收集已驗證金鑰，並僅將新金鑰附加到其金鑰池 | 400 無效輸入或未設定 `keySource`；404 未知供應商 |
+| `POST /api/providers/keys/refresh` | 從該供應商的外部金鑰來源收集已驗證金鑰，並僅將新金鑰附加到其金鑰池 | 400 無效輸入或未設定 `keySource`；404 未知供應商；502 金鑰來源無法連線或回傳錯誤 |
 | `GET, POST, PATCH, DELETE /api/keys` | 列出、建立、編輯或刪除 data-plane 許可金鑰 | 400 無效 body/id；404 金鑰缺失 |
 
 憑證清單回應被刻意遮罩。OAuth access token 與完整的供應商 API 金鑰不回傳給儀表板客戶端。
