@@ -22,7 +22,7 @@ import type { CodexAccountPoolController } from "../../hooks/useCodexAccountPool
 import ProviderSettings from "./ProviderSettings";
 import { UnsavedLeaveDialog } from "./ProviderDialogs";
 import type { ProviderQuotaReportView } from "../../provider-workspace/report";
-import type { AccountLoadState, ProviderModelUsageRow, ProviderUsageTotals, OAuthAccountRow, ApiKeyRow, LoginHint, ProviderAuthHandlers, ProviderUpdatePatch, ProviderUpdateResult } from "./types";
+import type { AccountLoadState, ProviderModelUsageRow, ProviderUsageTotals, OAuthAccountRow, ApiKeyRow, KeyRegionEndpoint, LoginHint, ProviderAuthHandlers, ProviderUpdatePatch, ProviderUpdateResult } from "./types";
 
 type Tab = "overview" | "models" | "usage" | "accounts" | "settings";
 
@@ -52,6 +52,7 @@ export default function ProviderDetails({
   accountsFocusProvider = null,
   switchingAccountId,
   keys,
+  keyEndpoints,
   busyProvider,
   loginHint,
   authHandlers,
@@ -92,6 +93,8 @@ export default function ProviderDetails({
   accountsFocusProvider?: string | null;
   switchingAccountId?: string | null;
   keys?: ApiKeyRow[];
+  /** Declared official hosts for a multi-region provider; empty for a single-host provider. */
+  keyEndpoints?: KeyRegionEndpoint[];
   busyProvider?: string | null;
   loginHint?: LoginHint | null;
   authHandlers?: ProviderAuthHandlers;
@@ -338,6 +341,7 @@ export default function ProviderDetails({
             oauth={oauth}
             accounts={accounts}
             keys={keys}
+            endpoints={keyEndpoints}
             accountLoadState={accountLoadState}
             switchingAccountId={switchingAccountId}
             busy={busyProvider === item.name}

@@ -406,7 +406,19 @@ export interface OcxProviderConfig {
    * entry so routing stays single-key; managed via /api/providers/keys. A legacy bare
    * `apiKey` seeds a one-entry pool on first management touch.
    */
-  apiKeyPool?: Array<{ id: string; key: string; label?: string; addedAt?: number }>;
+  apiKeyPool?: Array<{
+    id: string;
+    key: string;
+    label?: string;
+    addedAt?: number;
+    /**
+     * Upstream endpoint this key must be sent to, overriding the provider's own baseUrl.
+     * Set for vendors whose pool can legitimately mix regional hosts (MiniMax global vs CN):
+     * a key authenticates on exactly one host, so the endpoint travels with the key rather
+     * than the provider row. Absent means "use the provider baseUrl".
+     */
+    baseUrl?: string;
+  }>;
   /**
    * Optional proactive ordering for `apiKeyPool` when the committed key is already
    * cooling. Deliberately NOT named like the OAuth `accountPoolStrategy`: an API key
@@ -417,6 +429,12 @@ export interface OcxProviderConfig {
    * 429/401 walk in `key-failover`.
    */
   apiKeyPoolStrategy?: "round-robin" | "fill-first" | "quota";
+  /**
+   * Opt-in automatic API-key sourcing. Present = this provider's keys are refreshed
+   * from the key-checker service; absent = the provider is never touched. Every field
+   * has a default, so `"keySource": {}` is a valid opt-in.
+   */
+  keySource?: { url?: string; topic?: string; refreshDays?: number };
   /** Changes on manual selection (including re-selection) and committed automatic allocation. */
   apiKeySelectionRevision?: string;
   /** Runtime only. Never expose in management responses or persist a routed provider. */

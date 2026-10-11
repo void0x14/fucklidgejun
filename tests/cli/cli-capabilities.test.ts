@@ -292,6 +292,8 @@ const UNDECLARED_ROUTES_2026_08_28: readonly string[] = [
   "POST /api/oauth/logout",
   "POST /api/providers",
   "POST /api/providers/keys",
+"POST /api/providers/keys/detect",
+  "POST /api/providers/keys/refresh",
   "POST /api/providers/test",
   "POST /api/routing-profiles/dry-run",
   "POST /api/startup-action",

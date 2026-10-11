@@ -29,6 +29,7 @@ import type {
   AccountLoadState,
   OAuthAccountRow,
   ApiKeyRow,
+  KeyRegionEndpoint,
   LoginHint,
   ProviderAuthHandlers,
   ProviderUpdatePatch,
@@ -38,6 +39,14 @@ import type {
 const COCKPIT_IMPORT_MAX_BYTES = 256 * 1024;
 const EMPTY_OAUTH_ACCOUNTS: OAuthAccountRow[] = [];
 const EMPTY_API_KEYS: ApiKeyRow[] = [];
+const EMPTY_KEY_ENDPOINTS: KeyRegionEndpoint[] = [];
+
+/** Narrow a stored endpoint to the registry label the row should show. */
+function keyRegionLabel(entry: ApiKeyRow, endpoints: KeyRegionEndpoint[]): KeyRegionEndpoint | undefined {
+  if (!entry.endpoint) return undefined;
+  const normalized = entry.endpoint.trim().replace(/\/+$/, "").toLowerCase();
+  return endpoints.find(candidate => candidate.baseUrl.trim().replace(/\/+$/, "").toLowerCase() === normalized);
+}
 
 /**
  * One predicate for "this row cannot spend a coupon right now". The read set and
@@ -175,6 +184,7 @@ function safeCockpitImportResult(value: unknown): CockpitImportResult | null {
 
 export default function ProviderAuthPanel({
   item, apiBase, oauth, accounts = EMPTY_OAUTH_ACCOUNTS, keys = EMPTY_API_KEYS, accountLoadState = "ready",
+  endpoints = EMPTY_KEY_ENDPOINTS,
   switchingAccountId = null, busy = false, loginHint, authHandlers, onCodexActiveNeedsReauthChange,
   codexController, onUpdateProvider,
 }: {
@@ -183,6 +193,8 @@ export default function ProviderAuthPanel({
   oauth?: { loggedIn: boolean; email?: string; error?: string };
   accounts?: OAuthAccountRow[];
   keys?: ApiKeyRow[];
+  /** Declared official hosts for a multi-region provider; 2+ enables the region surface. */
+  endpoints?: KeyRegionEndpoint[];
   accountLoadState?: AccountLoadState;
   switchingAccountId?: string | null;
   busy?: boolean;
@@ -197,6 +209,10 @@ export default function ProviderAuthPanel({
   const [addingKey, setAddingKey] = useState(false);
   const [newKey, setNewKey] = useState("");
   const [keyBusy, setKeyBusy] = useState(false);
+  const [sourceFetchBusy, setSourceFetchBusy] = useState(false);
+  const [regionBusy, setRegionBusy] = useState(false);
+  // Kept until the next run so the operator can see what the last detection did.
+  const [regionResult, setRegionResult] = useState<{ detected: number; unresolved: number } | null>(null);
   const [importBusy, setImportBusy] = useState(false);
   const [importStatus, setImportStatus] = useState<"idle" | "invalid" | "failed" | "complete">("idle");
   const [importResult, setImportResult] = useState<CockpitImportResult | null>(null);
@@ -314,6 +330,29 @@ export default function ProviderAuthPanel({
       if (ok) { setNewKey(""); setAddingKey(false); }
     } finally {
       setKeyBusy(false);
+    }
+  };
+
+  const fetchKeysFromSource = async () => {
+    if (!authHandlers.onRefreshKeysFromSource || sourceFetchBusy) return;
+    setSourceFetchBusy(true);
+    try {
+      // No result line here: this panel has no toast, and the handler already reports
+      // through the injected notify. A second live region would only duplicate it.
+      await authHandlers.onRefreshKeysFromSource(item.name);
+    } finally {
+      setSourceFetchBusy(false);
+    }
+  };
+
+  const detectRegions = async (force = false) => {
+    if (!authHandlers.onDetectRegions || regionBusy) return;
+    setRegionBusy(true);
+    try {
+      const result = await authHandlers.onDetectRegions(item.name, force);
+      if (result) setRegionResult(result);
+    } finally {
+      setRegionBusy(false);
     }
   };
 
@@ -643,6 +682,14 @@ export default function ProviderAuthPanel({
                         {entry.label && <code className="pwi-auth-row-secondary">{entry.masked} · {t("prov.accountId")}: {entry.id}</code>}
                       </span>
                       {entry.active && <span className="badge badge-primary">{t("prov.accountActive")}</span>}
+                      {endpoints.length >= 2 && (() => {
+                        const region = keyRegionLabel(entry, endpoints);
+                        // Detected host: name it. Set-but-unmatched: show the raw host. Unset:
+                        // the key has not been region-detected yet.
+                        if (region) return <span className="badge badge-muted" title={region.baseUrl}>{t("pws.region")}: {region.label}</span>;
+                        if (entry.endpoint) return <span className="badge badge-muted" title={entry.endpoint}>{t("pws.region")}: {entry.endpoint}</span>;
+                        return <span className="badge badge-amber" title={t("pws.regionUndetectedHint")}>{t("pws.regionUndetected")}</span>;
+                      })()}
                     </button>
                     <button type="button" className="btn btn-ghost btn-sm"
                       onClick={() => void authHandlers.onEditAlias(item.name, "api-key", entry.id, entry.label)}>
@@ -675,6 +722,31 @@ export default function ProviderAuthPanel({
             ) : (
               <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: 8 }}
                 onClick={() => setAddingKey(true)}>{t("pws.addKey")}</button>
+            )}
+            {authHandlers.onRefreshKeysFromSource && (
+              <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: 8 }}
+                disabled={sourceFetchBusy}
+                onClick={() => { void fetchKeysFromSource(); }}>
+                {sourceFetchBusy && <span className="pwi-spin-inline" aria-hidden="true" />}
+                {sourceFetchBusy ? t("pws.fetchingKeysFromSource") : t("pws.fetchKeysFromSource")}
+              </button>
+            )}
+            {authHandlers.onDetectRegions && endpoints.length >= 2 && (
+              <div style={{ marginTop: 8 }}>
+                <button type="button" className="btn btn-ghost btn-sm"
+                  disabled={regionBusy}
+                  onClick={() => { void detectRegions(false); }}>
+                  {regionBusy && <span className="pwi-spin-inline" aria-hidden="true" />}
+                  {regionBusy ? t("pws.detectingRegions") : t("pws.detectRegions")}
+                </button>
+                {regionResult && (
+                  <p className="muted small" role="status" style={{ marginTop: 4 }}>
+                    {regionResult.unresolved > 0
+                      ? t("pws.detectRegionsResultMixed", { detected: regionResult.detected, unresolved: regionResult.unresolved })
+                      : t("pws.detectRegionsResult", { detected: regionResult.detected })}
+                  </p>
+                )}
+              </div>
             )}
           </>
         )}

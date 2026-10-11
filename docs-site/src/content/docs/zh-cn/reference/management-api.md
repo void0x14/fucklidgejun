@@ -184,9 +184,14 @@ Authorization: Bearer <admin-token>
 | `GET, POST, DELETE /api/providers/keys` | 列出已脱敏的 provider 密钥，添加/激活一个，或移除一个 | 400 输入无效；404 provider/密钥缺失 |
 | `PUT /api/providers/keys/active` | 选择某个 provider 的活跃密钥 | 400 输入无效；404 provider/密钥缺失 |
 | `PUT /api/providers/keys/alias` | 设置或清除 provider 密钥别名 | 400 输入无效；404 provider/密钥缺失 |
+| `POST /api/providers/keys/refresh` | 从该 provider 的外部密钥源收集已验证密钥，仅将新密钥追加到其密钥池 | 400 输入无效或未配置 `keySource`；404 provider 未知 |
 | `GET, POST, PATCH, DELETE /api/keys` | 列出、创建、编辑或删除数据平面准入密钥 | 400 请求体/id 无效；404 密钥缺失 |
 
 凭证列表响应会刻意脱敏。OAuth 访问令牌和完整的 provider API 密钥不会返回给仪表板客户端。
+
+`POST /api/providers/keys/refresh` 会从该 provider 可选的 `keySource` 配置所指向的外部密钥校验
+服务收集已验证密钥，并且只追加密钥池中尚不存在的那些。它不会添加重复密钥，不会更改活跃密钥；
+当一次刷新没有发现新密钥时，它不会执行任何磁盘写入。
 
 ### Providers
 

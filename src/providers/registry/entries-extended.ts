@@ -7,6 +7,9 @@ import {
   ALIBABA_CODING_INTL_BASE_URL,
   MOONSHOT_BASE_URL_CHOICES,
   MOONSHOT_INTL_BASE_URL,
+  MINIMAX_BASE_URL_CHOICES,
+  MINIMAX_INTL_BASE_URL,
+  MINIMAX_CN_BASE_URL,
 } from "../base-url-choices";
 import { COMMAND_CODE_MODEL_REASONING_EFFORTS } from "../command-code-efforts";
 import {
@@ -841,7 +844,11 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
   // FREEZE 2026-07-10: codestral-latest is unconfirmed behind auth. Evidence: devlog/_plan/260710_provider_hardening/003_research_aggregators.md.
   { id: "mistral", label: "Mistral", baseUrl: "https://api.mistral.ai/v1", adapter: "openai-chat", authKind: "key", dashboardUrl: "https://console.mistral.ai/api-keys", defaultModel: "codestral-latest" },
   {
-    id: "minimax", label: "MiniMax — Coding Plan", baseUrl: "https://api.minimax.io/v1", adapter: "openai-chat", authKind: "key",
+    // Global (.io) and China (.com) are separate accounts on separate hosts. Both hosts are
+    // declared as choices so an API-key pool may mix regions: each key routes to its own host
+    // (entry.baseUrl) and a wrong-region default is corrected on the first key-scoped 401.
+    id: "minimax", label: "MiniMax — Coding Plan", baseUrl: MINIMAX_INTL_BASE_URL, adapter: "openai-chat", authKind: "key",
+    allowBaseUrlOverride: true, baseUrlChoices: MINIMAX_BASE_URL_CHOICES,
     dashboardUrl: "https://platform.minimax.io", defaultModel: "MiniMax-M3", models: MINIMAX_MODELS,
     modelContextWindows: MINIMAX_MODEL_CONTEXT_WINDOWS,
     modelReasoningEfforts: { "MiniMax-M3": MINIMAX_M3_REASONING_EFFORTS },
@@ -864,7 +871,8 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     jawcodeBundle: "minimax", metadataModelIdNormalize: "case-insensitive", note: "Subscription Key or API Key",
   },
   {
-    id: "minimax-cn", label: "MiniMax — Coding Plan (CN)", baseUrl: "https://api.minimaxi.com/v1", adapter: "openai-chat", authKind: "key",
+    id: "minimax-cn", label: "MiniMax — Coding Plan (CN)", baseUrl: MINIMAX_CN_BASE_URL, adapter: "openai-chat", authKind: "key",
+    allowBaseUrlOverride: true, baseUrlChoices: MINIMAX_BASE_URL_CHOICES,
     dashboardUrl: "https://platform.minimaxi.com", defaultModel: "MiniMax-M3", models: MINIMAX_MODELS,
     modelContextWindows: MINIMAX_MODEL_CONTEXT_WINDOWS,
     modelReasoningEfforts: { "MiniMax-M3": MINIMAX_M3_REASONING_EFFORTS },

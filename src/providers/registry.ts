@@ -153,6 +153,32 @@ export function registryEntryForProviderDestination(
 }
 
 /**
+ * Every upstream endpoint a registry entry officially serves, normalized for comparison.
+ *
+ * A vendor that publishes one product under two hosts (MiniMax global vs mainland China) lists
+ * both in `baseUrlChoices`. The router consults this set before honoring a per-key pool endpoint
+ * (src/providers/api-key-endpoint.ts): the endpoint can travel with the key, but only to an
+ * address the registry already declares, so the pinned-identity boundary is preserved.
+ */
+export function registryEntryDeclaredEndpoints(entry: ProviderRegistryEntry): string[] {
+  const endpoints = new Set<string>();
+  const add = (value: string | undefined): void => {
+    if (!value || /\{[^}]*\}/.test(value)) return;
+    endpoints.add(normalizedProviderEndpoint(value));
+  };
+  add(entry.baseUrl);
+  for (const choice of entry.baseUrlChoices ?? []) add(choice.baseUrl);
+  for (const alias of entry.destinationAliases ?? []) add(alias.baseUrl);
+  return [...endpoints];
+}
+
+/** True when `baseUrl` is one of the endpoints this registry entry officially serves. */
+export function registryDeclaresEndpoint(entry: ProviderRegistryEntry, baseUrl: string | undefined): boolean {
+  if (!baseUrl || /\{[^}]*\}/.test(baseUrl)) return false;
+  return registryEntryDeclaredEndpoints(entry).includes(normalizedProviderEndpoint(baseUrl));
+}
+
+/**
  * Resolve a registry-only default for a mixed-wire provider. Defaults only move a provider
  * between the two OpenAI-shaped adapters and never override a provider configured on another
  * wire. The resolver receives the allow-list so this helper cannot accidentally widen the

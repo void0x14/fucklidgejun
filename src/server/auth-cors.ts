@@ -931,6 +931,7 @@ const PROVIDER_CONFIG_FIELD_POLICY = {
   // Ordering preference only; it names no key material, so an editor may read and set it.
   apiKeyPoolStrategy: "editor",
   apiKeySelectionRevision: "runtime",
+  keySource: "editor",
   _apiKeyAttempt: "runtime",
   defaultModel: "editor",
   models: "editor",

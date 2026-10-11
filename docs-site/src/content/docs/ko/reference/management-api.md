@@ -188,9 +188,14 @@ Authorization: Bearer <admin-token>
 | `GET, POST, DELETE /api/providers/keys` | 마스킹된 provider key를 나열, 추가/활성화, 또는 제거합니다 | 400 잘못된 입력; 404 provider/key 없음 |
 | `PUT /api/providers/keys/active` | provider의 활성 key를 선택합니다 | 400 잘못된 입력; 404 provider/key 없음 |
 | `PUT /api/providers/keys/alias` | provider-key alias를 설정하거나 지웁니다 | 400 잘못된 입력; 404 provider/key 없음 |
+| `POST /api/providers/keys/refresh` | provider의 외부 key source에서 검증된 key를 수집하고 새 key만 pool에 추가합니다 | 400 잘못된 입력 또는 `keySource` 미설정; 404 알 수 없는 provider |
 | `GET, POST, PATCH, DELETE /api/keys` | 데이터 평면 admission key를 나열, 생성, 수정, 또는 삭제합니다 | 400 잘못된 본문/id; 404 key 없음 |
 
 자격 증명 목록 응답은 의도적으로 마스킹됩니다. OAuth access token과 완전한 provider API key는 대시보드 클라이언트에 반환되지 않습니다.
+
+`POST /api/providers/keys/refresh`는 해당 provider의 선택적 `keySource` 설정이 가리키는 외부
+key-checker 서비스에서 검증된 key를 수집하고 pool에 아직 없는 것만 추가합니다. 중복으로 추가하지
+않고, 활성 key를 변경하지 않으며, 새 key가 없으면 디스크에 기록하지 않습니다.
 
 ### 제공자
 

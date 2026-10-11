@@ -209,10 +209,16 @@ Endpoint'ы storage cleanup могут перемещать или навсег�
 | `GET, POST, DELETE /api/providers/keys` | Показать список masked provider-key'ов, добавить/активировать один или удалить один | 400 invalid input; 404 provider/key missing |
 | `PUT /api/providers/keys/active` | Выбрать активный ключ провайдера | 400 invalid input; 404 provider/key missing |
 | `PUT /api/providers/keys/alias` | Задать или очистить alias provider-key'а | 400 invalid input; 404 provider/key missing |
+| `POST /api/providers/keys/refresh` | Собрать проверенные ключи из внешнего key source провайдера и добавить в пул только новые | 400 invalid input or no `keySource` configured; 404 unknown provider |
 | `GET, POST, PATCH, DELETE /api/keys` | Показать список, создать, отредактировать или удалить admission key data plane | 400 invalid body/id; 404 key missing |
 
 Ответы со списками credential'ов намеренно маскируются. OAuth access-token'ы и полные API-key'и
 провайдеров клиентам дашборда не возвращаются.
+
+`POST /api/providers/keys/refresh` собирает проверенные ключи с внешнего сервиса проверки ключей,
+указанного в необязательной секции `keySource` провайдера, и добавляет в пул только те ключи,
+которых там ещё нет. Дубликаты не добавляются, активный ключ не меняется, а обновление, не
+нашедшее ничего нового, не выполняет никакой записи на диск.
 
 ### Провайдеры
 

@@ -374,9 +374,9 @@ export default function Providers({ apiBase }: { apiBase: string }) {
     fetchConfig, fetchOauth, fetchProviderQuotas, codexActiveNeedsReauth,
   });
   const {
-    accountSets, setAccountSets, accountLoadStates, switchingAccount, keyPools, fetchAccountSets, fetchKeyPools,
+    accountSets, setAccountSets, accountLoadStates, switchingAccount, keyPools, keyEndpoints, fetchAccountSets, fetchKeyPools,
     refreshAccountRosters, oauthCardProviders, keyCardProviders,
-    switchAccount, switchApiKey, removeApiKey, addApiKeyValue, editCredentialAlias,
+    switchAccount, switchApiKey, removeApiKey, addApiKeyValue, refreshKeysFromSource, detectKeyRegions, editCredentialAlias,
     removeAccount, activeAccountNeedsReauth,
   } = pools;
   const refreshSelection = useCallback((target?: AccountSelectionTarget) => {
@@ -619,6 +619,7 @@ export default function Providers({ apiBase }: { apiBase: string }) {
             oauth={loginStatus}
             accounts={accountSets[item.name]?.accounts ?? []}
             keys={keyPools[item.name] ?? []}
+            keyEndpoints={keyEndpoints[item.name] ?? []}
             accountLoadState={accountLoadStates[item.name] ?? (item.authMode === "oauth" ? "idle" : "ready")}
             accountsFocusToken={accountsFocus.token}
             accountsFocusProvider={accountsFocus.provider}
@@ -634,6 +635,8 @@ export default function Providers({ apiBase }: { apiBase: string }) {
               onRemoveAccount: removeAccount,
               onRetryAccounts: async provider => { await fetchAccountSets([provider]); },
               onAddApiKey: addApiKeyValue,
+              onRefreshKeysFromSource: refreshKeysFromSource,
+              onDetectRegions: detectKeyRegions,
               onSwitchApiKey: switchApiKey,
               onRemoveApiKey: removeApiKey,
               onEditAlias: editCredentialAlias,

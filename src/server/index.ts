@@ -63,6 +63,7 @@ import { acquireServerBackgroundLifecycle } from "./background-lifecycle";
 import { activateLab, labActivationRequired } from "../lib/lab-activation";
 import { runOpenAiTierStartupMigration } from "../providers/openai-tier-startup";
 import { runAlibabaRegionStartupMigration } from "../providers/alibaba-region-startup";
+import { sweepProviderKeyRegions } from "../providers/region-detect";
 import { runModelRenameStartupMigration } from "../providers/model-rename-startup";
 import { runDevinProviderMergeStartupMigration } from "../providers/devin-provider-merge-migration";
 import { isCanonicalOpenAiForwardProvider, OPENAI_CODEX_PROVIDER_ID } from "../providers/openai-tiers";
@@ -806,6 +807,10 @@ export function startServer(port?: number, deps: StartServerDeps = {}): Server<W
   const actualPort = server.port ?? listenPort;
   boundPort = actualPort;
   setCorsOrigin(actualPort);
+  // Fire-and-forget: detect each multi-region provider key's host so a mixed pool round-robins
+  // without ever dispatching a key to the wrong endpoint. Best-effort and after listen, so a slow
+  // probe can never delay startup.
+  void sweepProviderKeyRegions(config);
 
   console.log(`🚀 opencodex proxy running on http://localhost:${actualPort}`);
   console.log(`   POST /v1/responses → provider translation`);

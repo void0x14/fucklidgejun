@@ -72,3 +72,18 @@ export const MOONSHOT_BASE_URL_CHOICES: readonly ProviderBaseUrlChoice[] = [
   { id: "china", label: "China (.cn)", baseUrl: MOONSHOT_CN_BASE_URL },
   { id: "custom", label: "Custom" },
 ];
+
+/**
+ * MiniMax endpoint presets: the international (.io) and mainland China (.com) hosts are separate
+ * platforms with separate accounts, so a key authenticates on exactly one of them. Both ids are
+ * listed because an API-key pool can legitimately mix regions and each key routes to its own host
+ * (see src/providers/api-key-endpoint.ts). No "custom" choice: the two official hosts are the whole
+ * set the pinned-identity boundary accepts.
+ */
+export const MINIMAX_INTL_BASE_URL = "https://api.minimax.io/v1";
+export const MINIMAX_CN_BASE_URL = "https://api.minimaxi.com/v1";
+
+export const MINIMAX_BASE_URL_CHOICES: readonly ProviderBaseUrlChoice[] = [
+  { id: "international", label: "International (.io)", baseUrl: MINIMAX_INTL_BASE_URL },
+  { id: "china", label: "China (.com)", baseUrl: MINIMAX_CN_BASE_URL },
+];

@@ -67,6 +67,18 @@ const transientRetryOn5xxPolicySchema = z.object({
   attempts: z.number().int().min(1).max(10).optional(),
 }).strict();
 
+/**
+ * Opt-in key-checker sourcing (`providers.<name>.keySource`). Presence of the object is the
+ * opt-in, so `"keySource": {}` is a valid row; every field has a runtime default. Permissive
+ * because a hand-edited config must keep loading, and a bad url or topic is resolved at call
+ * time where the operator is told why rather than at load time where the whole config is lost.
+ */
+const keySourceSchema = z.object({
+  url: z.string().optional(),
+  topic: z.string().optional(),
+  refreshDays: z.number().positive().optional(),
+}).strict();
+
 const requestPacingRuleSchema = z.object({
   // Keep the RPM-derived timer within the same one-hour bound as minIntervalMs.
   requestsPerMinute: z.number().min(1 / 60).max(60_000).optional(),
@@ -220,6 +232,7 @@ export const providerConfigSchema = z.object({
   // load silently and then be ignored at selection time, which reads as a broken feature
   // rather than a rejected setting.
   apiKeyPoolStrategy: z.enum(["round-robin", "fill-first", "quota"]).optional(),
+  keySource: keySourceSchema.optional(),
   autoReviewModel: autoReviewModelSchema.optional(),
   autoReviewModelOverrides: autoReviewModelOverridesSchema.optional(),
   adapter: z.string().min(1),

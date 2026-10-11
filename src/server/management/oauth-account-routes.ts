@@ -721,6 +721,10 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
     const name = (url.searchParams.get("name") ?? "").trim();
     if (!name || !isValidProviderName(name) || !hasOwnProvider(config.providers, name)) return jsonResponse({ error: "unknown provider" }, 404);
     const { listProviderApiKeys } = await import("../../providers/api-keys");
+    const { providerDeclaredRegionEndpoints } = await import("../../providers/region-detect");
+    // Declared regional hosts (2+ for a multi-region provider); the UI renders each key's
+    // detected region against this list, and shows nothing when a provider has one host.
+    const endpoints = providerDeclaredRegionEndpoints(name);
     const projectKeys = () => {
       const listed = listProviderApiKeys(config, name);
       const provider = config.providers[name];
@@ -729,13 +733,14 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
     };
     const initial = projectKeys();
     if (url.searchParams.get("quota") !== "1" || !initial.keys.some(key => key.quotaMode === "probe")) {
-      return jsonResponse(initial);
+      return jsonResponse({ ...initial, endpoints });
     }
     const rows = await fetchProviderApiKeyQuotas(config, name, url.searchParams.get("refresh") === "1");
     const byId = new Map(rows.map(row => [row.keyId, row]));
     const current = projectKeys();
     return jsonResponse({
       activeId: current.activeId,
+      endpoints,
       keys: current.keys.map(key => {
         const row = byId.get(key.id);
         if (!row || key.quotaMode !== "probe") return key;
@@ -762,8 +767,53 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
     // ...and the rotation cursor with it. A cursor that predates the operator's choice would
     // hand the next proactive pick straight back to whichever key the pool had reached.
     forgetApiKeyRotationCursor(name);
-    return jsonResponse({ ok: true, id: result.id }, 201);
+    // Detect the new key's regional host immediately, so a mixed-region pool round-robins
+    // without ever dispatching this key to the wrong endpoint.
+    const { detectProviderKeyRegions } = await import("../../providers/region-detect");
+    const detection = await detectProviderKeyRegions(config, name, { entryIds: [result.id] });
+    const region = detection.results.find(row => row.id === result.id);
+    return jsonResponse({
+      ok: true,
+      id: result.id,
+      endpoints: detection.endpoints,
+      ...(region?.endpoint ? { endpoint: region.endpoint } : {}),
+      region: region?.status ?? "unsupported",
+    }, 201);
   }
+  // Re-detect the regional host of every pool key (force re-probes keys that already carry one).
+  // This is the GUI's "detect regions" action: it makes a mixed-region pool whole on demand and
+  // returns per-key feedback.
+  if (url.pathname === "/api/providers/keys/detect" && req.method === "POST") {
+    const body = await readManagementJsonBodyOr(req, {}) as { name?: string; force?: boolean };
+    const name = (body.name ?? "").trim();
+    if (!name || !isValidProviderName(name) || !hasOwnProvider(config.providers, name)) return jsonResponse({ error: "unknown provider" }, 404);
+    const { detectProviderKeyRegions } = await import("../../providers/region-detect");
+    const detection = await detectProviderKeyRegions(config, name, { force: body.force === true });
+    const { listProviderApiKeys } = await import("../../providers/api-keys");
+    const listed = listProviderApiKeys(config, name);
+    return jsonResponse({ ...detection, activeId: listed.activeId, keys: listed.keys });
+  }
+  // Pull VERIFIED keys from the key-checker service and APPEND them to the pool. The active
+  // key is deliberately left alone: rotating it here would fail every in-flight round-robin
+  // pick, and the operator asked for more capacity rather than a different key.
+if (url.pathname === "/api/providers/keys/refresh" && req.method === "POST") {
+const body = await readManagementJsonBodyOr(req, {}) as { name?: string };
+const name = (body.name ?? "").trim();
+if (!name || !isValidProviderName(name) || !hasOwnProvider(config.providers, name)) return jsonResponse({ error: "unknown provider" }, 404);
+const { syncProviderKeysFromSource } = await import("../../providers/key-source");
+// The key-checker service is a separate process that is usually simply not running, so its
+// failure is reported here rather than thrown past the management dispatcher: an operator
+// clicking the button needs to read WHY nothing arrived, not a generic 500.
+let result: Awaited<ReturnType<typeof syncProviderKeysFromSource>>;
+try {
+result = await syncProviderKeysFromSource(config, name, { signal: req.signal });
+} catch (err) {
+const message = err instanceof Error ? err.message : String(err);
+return jsonResponse({ error: `key source unavailable: ${message}` }, 502);
+}
+if ("error" in result) return jsonResponse({ error: result.error }, 400);
+return jsonResponse({ ok: true, ...result });
+}
   // Opt-in OS keychain storage (#1221): move the active key and pool into the OS credential
   // store (config keeps references), or restore plaintext. Store verifies the keychain before
   // touching config so an unavailable store refuses instead of half-migrating.

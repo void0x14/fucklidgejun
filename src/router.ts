@@ -17,8 +17,10 @@ import {
   PROVIDER_REGISTRY,
   mergeRegistryStaticHeaders,
   providerCodexAccountMode,
+  registryDeclaresEndpoint,
   registryModelServiceTierCapabilityApplies,
 } from "./providers/registry";
+import { resolvePoolEntryEndpoint } from "./providers/api-key-endpoint";
 import { applyDirectReasoningEffortContracts, hasLegacyClinePassReasoningEfforts } from "./providers/derive";
 import { cloneFastWire } from "./providers/fastwire";
 import {
@@ -364,10 +366,16 @@ export function routedProviderConfig(providerName: string, provider: OcxProvider
     throw new Error(`Invalid baseUrl for provider "${providerName}": expected a nonblank URL without unresolved placeholders`);
   }
   // Registry template URLs are presets; local/self-hosted entries opt in explicitly.
-  const baseUrl = (registryBaseUrlIsTemplate || registryEntry.allowBaseUrlOverride) && userBaseUrlIsResolved
+  const rowBaseUrl = (registryBaseUrlIsTemplate || registryEntry.allowBaseUrlOverride) && userBaseUrlIsResolved
     ? userBaseUrl
     : registryEntry.baseUrl;
-  if (userBaseUrlIsResolved) warnIfBaseUrlDiscarded(providerName, userBaseUrl, baseUrl);
+  if (userBaseUrlIsResolved) warnIfBaseUrlDiscarded(providerName, userBaseUrl, rowBaseUrl);
+  // A pool entry may carry the endpoint its key actually authenticates on (MiniMax global vs CN).
+  // The endpoint travels with the KEY, so it is honored even when the provider row is otherwise
+  // pinned — but only to a host the registry already declares, which keeps the pinned-identity
+  // boundary instead of turning the resolved baseUrl into an arbitrary override.
+  const poolEndpoint = resolvePoolEntryEndpoint(provider);
+  const baseUrl = registryDeclaresEndpoint(registryEntry, poolEndpoint) ? poolEndpoint! : rowBaseUrl;
   assertProviderDestinationAllowed(providerName, { baseUrl, allowPrivateNetwork: provider.allowPrivateNetwork });
 
   const resolved: OcxProviderConfig = {

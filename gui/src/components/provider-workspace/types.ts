@@ -69,7 +69,19 @@ export type ApiKeyRow = AccountQuotaReading & {
   label?: string;
   masked: string;
   active: boolean;
+  /**
+   * Upstream host this key was DETECTED to authenticate on, when the provider declares more
+   * than one official host (MiniMax global vs mainland China). Absent means undetected.
+   */
+  endpoint?: string;
 };
+
+/** One official upstream host a multi-region provider serves. */
+export interface KeyRegionEndpoint {
+  id: string;
+  label: string;
+  baseUrl: string;
+}
 
 export type LoginHint = {
   provider: string;
@@ -99,6 +111,18 @@ export interface ProviderAuthHandlers {
    * cannot force a read simply renders no button rather than one that does nothing.
    */
   onRefreshQuota?: (provider: string) => Promise<boolean>;
+  /**
+   * Fetch this provider's API keys from the configured external source and add the
+   * working ones to its key pool. Optional: a caller that cannot reach the source
+   * simply renders no button rather than one that does nothing.
+   */
+  onRefreshKeysFromSource?: (provider: string) => Promise<boolean>;
+  /**
+   * Detect the upstream host each key of a multi-region provider authenticates on, persisting
+   * the result so the pool round-robins without dispatching a key to the wrong endpoint.
+   * Optional: rendered only when the provider declares more than one official host.
+   */
+  onDetectRegions?: (provider: string, force?: boolean) => Promise<{ detected: number; unresolved: number } | null>;
 }
 
 export type ProviderUpdatePatch = {

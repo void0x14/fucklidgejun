@@ -19,6 +19,12 @@ export interface ProviderApiKeyInfo extends AccountQuotaFields {
   masked: string;
   active: boolean;
   addedAt?: number;
+  /**
+   * Upstream endpoint this key routes to, when the provider publishes more than one official
+   * host (e.g. MiniMax global vs mainland China). Set once the key's region has been detected;
+   * absent means "undetected" and the provider baseUrl stands. Never a secret.
+   */
+  endpoint?: string;
 }
 
 function isEnvReference(value: string): boolean {
@@ -75,6 +81,7 @@ export function listProviderApiKeys(config: OcxConfig, name: string): { activeId
       masked: maskApiKey(entry.key),
       active: entry.id === activeId,
       ...(entry.addedAt !== undefined ? { addedAt: entry.addedAt } : {}),
+      ...(entry.baseUrl ? { endpoint: entry.baseUrl } : {}),
     })),
   };
 }
@@ -125,6 +132,25 @@ export function setProviderApiKeyLabel(config: OcxConfig, name: string, id: stri
   else delete entry.label;
   saveConfigPreservingClaudeCode(config);
   return true;
+}
+
+/**
+ * Pin the upstream endpoint a pool entry routes to.
+ *
+ * Records the region a key was DETECTED to authenticate on (src/providers/region-detect.ts).
+ * This is a routing fact, not a key-selection change, so it never bumps
+ * apiKeySelectionRevision. Persists config and updates the live provider row.
+ */
+export function setProviderApiKeyEndpoint(config: OcxConfig, name: string, id: string, endpoint: string): boolean {
+  const trimmed = endpoint.trim();
+  if (!trimmed) return false;
+  const committed = commitProviderApiKeySelection(config, name, provider => {
+    const entry = provider.apiKeyPool?.find(e => e.id === id);
+    if (!entry || entry.baseUrl === trimmed) return { changed: false, value: false };
+    entry.baseUrl = trimmed;
+    return { changed: true, value: true };
+  });
+  return committed.status === "committed" && committed.value;
 }
 
 /** Remove one key; removing the active one promotes the first remaining. Persists config. */

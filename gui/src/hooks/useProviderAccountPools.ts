@@ -1,6 +1,6 @@
 import { parseQuotaFailureCode } from "../../../src/providers/quota-types";
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
-import type { AccountLoadState, AccountQuotaReading } from "../components/provider-workspace/types";
+import type { AccountLoadState, AccountQuotaReading, KeyRegionEndpoint } from "../components/provider-workspace/types";
 import { createBoundedFetch } from "../bounded-fetch";
 import { accountNeedsReauth } from "../oauth-health-display";
 import { oauthAccountDisplayLabel } from "../provider-workspace/auth";
@@ -24,7 +24,7 @@ export interface OAuthAccount extends AccountQuotaReading {
   healthSummary?: string;
   healthAction?: string;
 }
-export interface ApiKeyEntry extends AccountQuotaReading { id: string; label?: string; masked: string; active: boolean }
+export interface ApiKeyEntry extends AccountQuotaReading { id: string; label?: string; masked: string; active: boolean; endpoint?: string }
 export interface AccountSelectionTarget { provider: string; kind: "oauth" | "api-key" }
 
 function selectionRows<T extends { id: string; active: boolean }>(rows: T[], id: string | null | undefined): T[] {
@@ -120,6 +120,9 @@ export function useProviderAccountPools(deps: {
   const [switchingAccount, setSwitchingAccount] = useState<{ provider: string; accountId: string } | null>(null);
   const [openAccounts, setOpenAccounts] = useState<Record<string, boolean>>({});
   const [keyPools, setKeyPools] = useState<Record<string, ApiKeyEntry[]>>({});
+  // Declared official hosts per provider (2+ only for a multi-region provider). Empty means the
+  // provider has one host and no region surface is shown.
+  const [keyEndpoints, setKeyEndpoints] = useState<Record<string, KeyRegionEndpoint[]>>({});
   const [addingKeyFor, setAddingKeyFor] = useState<string | null>(null);
   const [newKeyValue, setNewKeyValue] = useState("");
   const accountRequestGenerationRef = useRef<Record<string, number>>({});
@@ -271,9 +274,12 @@ export function useProviderAccountPools(deps: {
         return false;
       };
       try {
-        const data = await readRoster<{ activeId?: string | null; keys?: ApiKeyEntry[] }>(url);
+        const data = await readRoster<{ activeId?: string | null; keys?: ApiKeyEntry[]; endpoints?: KeyRegionEndpoint[] }>(url);
         if (!Array.isArray(data.keys)) throw new Error("Invalid key roster");
         if (!currentRequest()) return false;
+        if (Array.isArray(data.endpoints) && currentRoster()) {
+          setKeyEndpoints(current => ({ ...current, [name]: data.endpoints as KeyRegionEndpoint[] }));
+        }
         const rows = selectionRows(data.keys, data.activeId);
         setKeyPools(current => currentRoster() ? { ...current, [name]: mergeQuotaRows(rows, current[name] ?? [], false) } : current);
         if (!rows.some(supportsQuotaRead)) return true;
@@ -465,6 +471,61 @@ export function useProviderAccountPools(deps: {
     if (ok) setNewKeyValue("");
   };
 
+  /**
+   * Detect the upstream host each pool key authenticates on (multi-region providers). The server
+   * probes each declared host with each key, persists the working one, and answers with the
+   * refreshed roster plus a per-provider tally the UI can show.
+   */
+  const detectKeyRegions = async (provider: string, force = false): Promise<{ detected: number; unresolved: number } | null> => {
+    try {
+      const res = await fetch(`${apiBase}/api/providers/keys/detect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: provider, force }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        notify(data.error || t("prov.regionDetectFail"), false);
+        return null;
+      }
+      const data = await res.json().catch(() => ({})) as {
+        keys?: ApiKeyEntry[]; activeId?: string | null; endpoints?: KeyRegionEndpoint[];
+        detected?: number; unresolved?: number;
+      };
+      if (Array.isArray(data.keys)) {
+        setKeyPools(current => ({ ...current, [provider]: selectionRows(data.keys as ApiKeyEntry[], data.activeId) }));
+      }
+      if (Array.isArray(data.endpoints)) {
+        setKeyEndpoints(current => ({ ...current, [provider]: data.endpoints as KeyRegionEndpoint[] }));
+      }
+      return { detected: data.detected ?? 0, unresolved: data.unresolved ?? 0 };
+    } catch {
+      notify(t("prov.regionDetectFail"), false);
+      return null;
+    }
+  };
+
+  const refreshKeysFromSource = async (provider: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`${apiBase}/api/providers/keys/refresh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: provider }) });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        notify(data.error || t("prov.keysFromSourceFail"), false);
+        return false;
+      }
+      const data = await res.json().catch(() => ({})) as { added?: number };
+      notify(t("prov.keysFromSourceDone", { count: data.added ?? 0 }), true);
+      await Promise.all([
+        fetchKeyPools(Object.keys(keyPools).includes(provider) ? Object.keys(keyPools) : [...Object.keys(keyPools), provider]),
+        fetchConfig(), fetchProviderQuotas(true),
+      ]);
+      return true;
+    } catch {
+      notify(t("prov.keysFromSourceFail"), false);
+      return false;
+    }
+  };
+
   const editCredentialAlias = async (provider: string, type: "oauth" | "api-key", id: string, current?: string) => {
     const entered = window.prompt(t("prov.aliasPrompt"), current ?? "");
     if (entered === null) return;
@@ -533,9 +594,10 @@ export function useProviderAccountPools(deps: {
   );
 
   return {
-    accountSets, accountLoadStates, switchingAccount, openAccounts, keyPools, addingKeyFor, newKeyValue,
-    setAccountSets, setAccountLoadStates, setSwitchingAccount, setOpenAccounts, setKeyPools, setAddingKeyFor, setNewKeyValue,
-    fetchAccountSets, fetchKeyPools, refreshAccountRosters, switchAccount, switchApiKey, removeApiKey, addApiKeyValue, addApiKey, editCredentialAlias, removeAccount,
+    accountSets, accountLoadStates, switchingAccount, openAccounts, keyPools, keyEndpoints, addingKeyFor, newKeyValue,
+    setAccountSets, setAccountLoadStates, setSwitchingAccount, setOpenAccounts, setKeyPools, setKeyEndpoints, setAddingKeyFor, setNewKeyValue,
+    fetchAccountSets, fetchKeyPools, refreshAccountRosters, switchAccount, switchApiKey, removeApiKey, addApiKeyValue, addApiKey, refreshKeysFromSource, editCredentialAlias, removeAccount,
+    detectKeyRegions,
     oauthCardProviders, keyCardProviders, activeAccountNeedsReauth,
   };
 }
