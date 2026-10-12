@@ -19,13 +19,20 @@ let host: HTMLElement;
 let root: Root | null = null;
 let fetchMock: ReturnType<typeof mock>;
 
+/**
+ * The provider has its source turned on: the fetch button is only offered once a
+ * source is configured, because pressing it with none is a guaranteed 400.
+ */
 const ITEM: WorkspaceItem = {
   name: "deepseek",
   adapter: "openai",
   baseUrl: "https://api.deepseek.com",
   authMode: "key",
   hasApiKey: true,
+  keySourceStatus: { enabled: true, url: "http://127.0.0.1:8787", topic: "deepseek", refreshDays: 7 },
 };
+
+const ITEM_NO_SOURCE: WorkspaceItem = { ...ITEM, keySourceStatus: undefined };
 
 function baseHandlers(): ProviderAuthHandlers {
   return {
@@ -40,7 +47,7 @@ function baseHandlers(): ProviderAuthHandlers {
  * `config: null` keeps the bootstrap roster effects from firing, so every fetch this
  * file makes comes from the click under test.
  */
-function Harness({ withSourceFetch }: { withSourceFetch: boolean }) {
+function Harness({ withSourceFetch, item = ITEM }: { withSourceFetch: boolean; item?: WorkspaceItem }) {
   const pools = useProviderAccountPools({
     apiBase: "/proxy",
     t: key => key,
@@ -57,7 +64,7 @@ function Harness({ withSourceFetch }: { withSourceFetch: boolean }) {
     ...baseHandlers(),
     ...(withSourceFetch ? { onRefreshKeysFromSource: pools.refreshKeysFromSource } : {}),
   };
-  return <ProviderAuthPanel item={ITEM} apiBase="/proxy" authHandlers={handlers} />;
+  return <ProviderAuthPanel item={item} apiBase="/proxy" authHandlers={handlers} />;
 }
 
 async function flush(): Promise<void> {
@@ -91,11 +98,11 @@ afterEach(async () => {
   await win.happyDOM?.close?.();
 });
 
-async function mount(withSourceFetch = true) {
+async function mount(withSourceFetch = true, item: WorkspaceItem = ITEM) {
   const { createRoot } = await import("react-dom/client");
   await act(async () => {
     root = createRoot(host);
-    root.render(<LanguageProvider><Harness withSourceFetch={withSourceFetch} /></LanguageProvider>);
+    root.render(<LanguageProvider><Harness withSourceFetch={withSourceFetch} item={item} /></LanguageProvider>);
   });
   await act(async () => { await flush(); });
 }
@@ -123,11 +130,12 @@ test("the button posts the frozen refresh contract exactly once", async () => {
   expect(init.body).toBe('{"name":"deepseek"}');
 });
 
-test("no button renders when the page cannot drive a fetch", async () => {
-  await mount(false);
+test("no fetch button renders when the provider has no source configured", async () => {
+  await mount(true, ITEM_NO_SOURCE);
 
+  // The toggle is what turns sourcing on; offering the fetch button without one
+  // is a button whose only possible outcome is a 400.
   expect(sourceButton()).toBeNull();
-  expect(host.textContent).not.toContain(BUTTON_LABEL);
   expect(refreshCalls()).toHaveLength(0);
 });
 

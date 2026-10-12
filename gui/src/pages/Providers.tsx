@@ -376,7 +376,7 @@ export default function Providers({ apiBase }: { apiBase: string }) {
   const {
     accountSets, setAccountSets, accountLoadStates, switchingAccount, keyPools, keyEndpoints, fetchAccountSets, fetchKeyPools,
     refreshAccountRosters, oauthCardProviders, keyCardProviders,
-    switchAccount, switchApiKey, removeApiKey, addApiKeyValue, refreshKeysFromSource, detectKeyRegions, editCredentialAlias,
+    switchAccount, switchApiKey, removeApiKey, addApiKeyValue, refreshKeysFromSource, configureKeySource, detectKeyRegions, editCredentialAlias,
     removeAccount, activeAccountNeedsReauth,
   } = pools;
   const refreshSelection = useCallback((target?: AccountSelectionTarget) => {
@@ -636,6 +636,7 @@ export default function Providers({ apiBase }: { apiBase: string }) {
               onRetryAccounts: async provider => { await fetchAccountSets([provider]); },
               onAddApiKey: addApiKeyValue,
               onRefreshKeysFromSource: refreshKeysFromSource,
+              onConfigureKeySource: configureKeySource,
               onDetectRegions: detectKeyRegions,
               onSwitchApiKey: switchApiKey,
               onRemoveApiKey: removeApiKey,

@@ -821,6 +821,32 @@ return jsonResponse({ error: `key source unavailable: ${message}` }, 502);
 if ("error" in result) return jsonResponse({ error: result.error }, 400);
 return jsonResponse({ ok: true, ...result });
 }
+// Turn a provider's external key source on or off, or re-point it. Separate from the
+// refresh route on purpose: turning the source ON is the setup step an operator needs, and
+// folding it into refresh would make the first click fail on the provider that has none.
+if (url.pathname === "/api/providers/keys/source" && req.method === "PUT") {
+const body = await readManagementJsonBodyOr(req, {}) as { name?: string; enabled?: unknown; url?: unknown; topic?: unknown; refreshDays?: unknown };
+const name = (body.name ?? "").trim();
+if (!name || !isValidProviderName(name) || !hasOwnProvider(config.providers, name)) return jsonResponse({ error: "unknown provider" }, 404);
+if (typeof body.enabled !== "boolean") return jsonResponse({ error: "enabled must be a boolean" }, 400);
+for (const [field, value] of [["url", body.url], ["topic", body.topic]] as const) {
+if (value !== undefined && typeof value !== "string") return jsonResponse({ error: `${field} must be a string` }, 400);
+// The dashboard sends these; a hand-rolled caller can send control characters.
+if (typeof value === "string" && /[\u0000-\u001f\u007f]/.test(value)) return jsonResponse({ error: `${field} has control characters` }, 400);
+}
+if (body.refreshDays !== undefined && (typeof body.refreshDays !== "number" || !Number.isFinite(body.refreshDays))) {
+return jsonResponse({ error: "refreshDays must be a number" }, 400);
+}
+const { setProviderKeySource } = await import("../../providers/key-source");
+const result = setProviderKeySource(config, name, {
+enabled: body.enabled,
+url: body.url as string | undefined,
+topic: body.topic as string | undefined,
+refreshDays: body.refreshDays as number | undefined,
+});
+if ("error" in result) return jsonResponse({ error: result.error }, 400);
+return jsonResponse({ ok: true, ...result.status });
+}
   // Opt-in OS keychain storage (#1221): move the active key and pool into the OS credential
   // store (config keeps references), or restore plaintext. Store verifies the keychain before
   // touching config so an unavailable store refuses instead of half-migrating.

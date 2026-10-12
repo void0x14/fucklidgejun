@@ -37,6 +37,7 @@ import { modelAutoCompactTokenLimitsConfigError } from "../providers/auto-compac
 import { vercelGatewayRoutingConfigError } from "../providers/vercel-gateway-routing";
 import { googleVertexLocationConfigError } from "../providers/google-vertex-location";
 import { xaiResponsesOptInState } from "../providers/xai-responses-opt-in";
+import { keySourceStatus } from "../providers/key-source";
 
 let _corsOrigin = "http://localhost:10100";
 export function setCorsOrigin(port: number): void { _corsOrigin = `http://localhost:${port}`; }
@@ -1144,11 +1145,16 @@ export function safeConfigDTO(config: OcxConfig): unknown {
   const editor = providerEditorConfigDTO(config);
   const providers: Record<string, Record<string, unknown>> = {};
   for (const [name, provider] of Object.entries(config.providers)) {
-    const dto: Record<string, unknown> = {
-      ...editor.providers[name],
-      hasApiKey: !!provider.apiKey,
-      hasHeaders: !!provider.headers && Object.keys(provider.headers).length > 0,
-    };
+const dto: Record<string, unknown> = {
+...editor.providers[name],
+hasApiKey: !!provider.apiKey,
+hasHeaders: !!provider.headers && Object.keys(provider.headers).length > 0,
+// The dashboard renders the source toggle from this, so it must always be present —
+// a missing key would read as "field not supported yet" rather than "turned off".
+// Contains no secret: the bearer token lives in the key-checker state dir and is never
+// part of the source config.
+keySourceStatus: keySourceStatus(provider, name),
+};
     if (name === "xai") {
       dto.xaiResponsesOptInState = xaiResponsesOptInState(provider);
     }

@@ -58,6 +58,12 @@ export interface WorkspaceProvider {
   codexAccountMode?: "direct" | "pool";
   /** Derived state of the two xAI Grok Responses model-adapter entries. */
   xaiResponsesOptInState?: boolean | "mixed";
+  /**
+   * External key source for this provider. `enabled: false` is a real state (the
+   * operator turned it off), not a missing field, so the toggle always has a truth to
+   * render from. The dashboard reads only this projection — never a credential.
+   */
+  keySourceStatus?: { enabled: boolean; url: string; topic: string; refreshDays: number };
 }
 
 /** Three-way pricing/ownership tier for a ready provider row. */

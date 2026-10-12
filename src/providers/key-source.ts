@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { OcxConfig, OcxProviderConfig } from "../types";
+import { saveConfigPreservingClaudeCode } from "../config";
 import { apiKeyPoolEntryId, isKeyAuthProvider, sanitizeApiKeyValue } from "./api-keys";
 import { commitProviderApiKeySelection } from "./api-key-selection";
 
@@ -28,7 +29,12 @@ function count(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
-/** Absent `keySource` is the off switch; a bare `{}` is a valid opt-in on every default. */
+/**
+ * Absent `keySource` is the off switch; a bare `{}` is a valid opt-in on every default.
+ *
+ * A read is a projection, never a write: a provider with no `keySource` is reported as
+ * disabled instead of being seeded, so merely listing providers cannot start collecting.
+ */
 export function keySourceSettings(provider: OcxProviderConfig | undefined, name: string): KeySourceSettings | null {
   if (!provider?.keySource) return null;
   const days = Math.floor(Number(provider.keySource.refreshDays));
@@ -37,6 +43,46 @@ export function keySourceSettings(provider: OcxProviderConfig | undefined, name:
     topic: provider.keySource.topic?.trim() || name,
     refreshDays: Number.isFinite(days) && days > 0 ? days : DEFAULT_KEY_SOURCE_REFRESH_DAYS,
   };
+}
+
+/** The dashboard's view of a provider's source: enough to render the control, no secret. */
+export function keySourceStatus(provider: OcxProviderConfig | undefined, name: string): {
+  enabled: boolean; url: string; topic: string; refreshDays: number;
+} {
+  const settings = keySourceSettings(provider, name);
+  return settings
+    ? { enabled: true, ...settings }
+    : { enabled: false, url: DEFAULT_KEY_SOURCE_URL, topic: name, refreshDays: DEFAULT_KEY_SOURCE_REFRESH_DAYS };
+}
+
+/**
+ * Turn a provider's source on or off, or re-point it. Persists config.
+ *
+ * Off DELETES the field rather than writing `enabled: false`, because an absent field is
+ * already the off switch and two representations of "off" would be one more thing to keep
+ * consistent. Turning it off must not touch the keys it added: the operator stops collecting,
+ * they do not ask for their pool to be emptied.
+ */
+export function setProviderKeySource(
+  config: OcxConfig,
+  name: string,
+  patch: { enabled: boolean; url?: string; topic?: string; refreshDays?: number },
+): { ok: true; status: ReturnType<typeof keySourceStatus> } | { error: string } {
+  const provider = config.providers[name];
+  if (!provider || !isKeyAuthProvider(provider)) return { error: "unknown provider" };
+  if (!patch.enabled) {
+    delete provider.keySource;
+  } else {
+    const current = keySourceSettings(provider, name)!;
+    const days = Math.floor(Number(patch.refreshDays ?? current.refreshDays));
+    provider.keySource = {
+      url: (patch.url ?? current.url).trim() || DEFAULT_KEY_SOURCE_URL,
+      topic: (patch.topic ?? current.topic).trim() || name,
+      refreshDays: Number.isFinite(days) && days > 0 ? days : DEFAULT_KEY_SOURCE_REFRESH_DAYS,
+    };
+  }
+  saveConfigPreservingClaudeCode(config);
+  return { ok: true, status: keySourceStatus(config.providers[name], name) };
 }
 
 /** key-checker writes its token next to its state; an unreadable file just means no header. */

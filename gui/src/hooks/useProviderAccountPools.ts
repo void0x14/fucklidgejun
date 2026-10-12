@@ -8,7 +8,7 @@ import { oauthAccountDisplayLabel } from "../provider-workspace/auth";
 export interface Config {
   port: number;
   defaultProvider: string;
-  providers: Record<string, { adapter: string; baseUrl: string; hasApiKey?: boolean; hasHeaders?: boolean; defaultModel?: string; models?: string[]; liveModels?: boolean; upstreamHttpVersion?: "auto" | "http1.1" | "h1" | "http2" | "h2"; authMode?: string; keyOptional?: boolean; disabled?: boolean; note?: string; codexAccountMode?: "direct" | "pool" }>;
+  providers: Record<string, { adapter: string; baseUrl: string; hasApiKey?: boolean; hasHeaders?: boolean; defaultModel?: string; models?: string[]; liveModels?: boolean; upstreamHttpVersion?: "auto" | "http1.1" | "h1" | "http2" | "h2"; authMode?: string; keyOptional?: boolean; disabled?: boolean; note?: string; codexAccountMode?: "direct" | "pool"; keySourceStatus?: { enabled: boolean; url: string; topic: string; refreshDays: number } }>;
 }
 
 export interface OAuthStatus { loggedIn: boolean; email?: string; error?: string; done?: boolean; needsReauth?: boolean; activeAccountId?: string | null }
@@ -508,16 +508,31 @@ export function useProviderAccountPools(deps: {
     }
   };
 
+/**
+   * Collect the provider's working keys from the external source and append them to its pool.
+   *
+   * The report distinguishes "added new keys" from "already had them all": a run that adds
+   * zero is NOT a failure — it means the pool already holds every working key the source has,
+   * which is the normal steady state. Reporting that as "Fetched 0" reads as a failure and
+   * makes the operator press the button again for nothing.
+   */
   const refreshKeysFromSource = async (provider: string): Promise<boolean> => {
     try {
       const res = await fetch(`${apiBase}/api/providers/keys/refresh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: provider }) });
       if (!res.ok) {
         const data = await res.json().catch(() => ({})) as { error?: string };
-        notify(data.error || t("prov.keysFromSourceFail"), false);
+        // 400 "no keySource configured" is a setup gap, not a source failure, and it needs
+        // its own wording or the operator goes looking for a broken service that is fine.
+        notify(data.error === "provider has no keySource configured"
+          ? t("prov.keysFromSourceNotConfigured")
+          : data.error || t("prov.keysFromSourceFail"), false);
         return false;
       }
-      const data = await res.json().catch(() => ({})) as { added?: number };
-      notify(t("prov.keysFromSourceDone", { count: data.added ?? 0 }), true);
+      const data = await res.json().catch(() => ({})) as { added?: number; verified?: number };
+      const added = data.added ?? 0;
+      notify(added > 0
+        ? t("prov.keysFromSourceDone", { count: added })
+        : t("prov.keysFromSourceUpToDate", { count: data.verified ?? 0 }), true);
       await Promise.all([
         fetchKeyPools(Object.keys(keyPools).includes(provider) ? Object.keys(keyPools) : [...Object.keys(keyPools), provider]),
         fetchConfig(), fetchProviderQuotas(true),
@@ -525,6 +540,31 @@ export function useProviderAccountPools(deps: {
       return true;
     } catch {
       notify(t("prov.keysFromSourceFail"), false);
+      return false;
+    }
+  };
+
+  /**
+ * Turn the external key source on or off. Returns whether the server accepted it, so the
+ * panel can revert an optimistic toggle instead of leaving the checkbox lying.
+ */
+  const configureKeySource = async (provider: string, enabled: boolean): Promise<boolean> => {
+    try {
+      const res = await fetch(`${apiBase}/api/providers/keys/source`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: provider, enabled }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        notify(data.error || t("prov.keySourceToggleFail"), false);
+        return false;
+      }
+      notify(t(enabled ? "prov.keySourceEnabled" : "prov.keySourceDisabled", { name: provider }), true);
+      await fetchConfig();
+      return true;
+    } catch {
+      notify(t("prov.keySourceToggleFail"), false);
       return false;
     }
   };
@@ -599,7 +639,7 @@ export function useProviderAccountPools(deps: {
   return {
     accountSets, accountLoadStates, switchingAccount, openAccounts, keyPools, keyEndpoints, addingKeyFor, newKeyValue,
     setAccountSets, setAccountLoadStates, setSwitchingAccount, setOpenAccounts, setKeyPools, setKeyEndpoints, setAddingKeyFor, setNewKeyValue,
-    fetchAccountSets, fetchKeyPools, refreshAccountRosters, switchAccount, switchApiKey, removeApiKey, addApiKeyValue, addApiKey, refreshKeysFromSource, editCredentialAlias, removeAccount,
+    fetchAccountSets, fetchKeyPools, refreshAccountRosters, switchAccount, switchApiKey, removeApiKey, addApiKeyValue, addApiKey, refreshKeysFromSource, configureKeySource, editCredentialAlias, removeAccount,
     detectKeyRegions,
     oauthCardProviders, keyCardProviders, activeAccountNeedsReauth,
   };

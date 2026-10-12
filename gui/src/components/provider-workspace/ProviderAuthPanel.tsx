@@ -221,6 +221,8 @@ export default function ProviderAuthPanel({
   const [newKey, setNewKey] = useState("");
   const [keyBusy, setKeyBusy] = useState(false);
   const [sourceFetchBusy, setSourceFetchBusy] = useState(false);
+  const [sourceToggleBusy, setSourceToggleBusy] = useState(false);
+  const [keySourceEnabled, setKeySourceEnabled] = useState(Boolean(item.keySourceStatus?.enabled));
   const [regionBusy, setRegionBusy] = useState(false);
   // Kept until the next run so the operator can see what the last detection did.
   const [regionResult, setRegionResult] = useState<{ detected: number; unresolved: number } | null>(null);
@@ -353,6 +355,23 @@ export default function ProviderAuthPanel({
       await authHandlers.onRefreshKeysFromSource(item.name);
     } finally {
       setSourceFetchBusy(false);
+    }
+  };
+
+  /**
+   * The fetch button is hidden while the source is off, so turning it on IS the setup
+   * step. Optimistic: the checkbox flips immediately and reverts if the server refuses,
+   * because a toggle that waits on a round trip reads as broken on a slow disk.
+   */
+  const toggleKeySource = async (enabled: boolean) => {
+    if (!authHandlers.onConfigureKeySource || sourceToggleBusy) return;
+    setKeySourceEnabled(enabled);
+    setSourceToggleBusy(true);
+    try {
+      const ok = await authHandlers.onConfigureKeySource(item.name, enabled);
+      if (!ok) setKeySourceEnabled(!enabled);
+    } finally {
+      setSourceToggleBusy(false);
     }
   };
 
@@ -737,7 +756,23 @@ export default function ProviderAuthPanel({
               <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: 8 }}
                 onClick={() => setAddingKey(true)}>{t("pws.addKey")}</button>
             )}
-            {authHandlers.onRefreshKeysFromSource && (
+            {authHandlers.onConfigureKeySource && (
+              <div className="pwi-auth-add-key" style={{ marginTop: 8 }}>
+                <label className="pwi-auth-row-secondary" htmlFor={`key-source-${item.name}`}>
+                  {t("pws.keySourceLabel")}
+                </label>
+                <input
+                  id={`key-source-${item.name}`}
+                  className="input"
+                  type="checkbox"
+                  checked={keySourceEnabled}
+                  disabled={sourceToggleBusy}
+                  onChange={event => { void toggleKeySource(event.currentTarget.checked); }}
+                />
+                <span className="pwi-auth-row-secondary">{t("pws.keySourceHint")}</span>
+              </div>
+            )}
+            {authHandlers.onRefreshKeysFromSource && keySourceEnabled && (
               <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: 8 }}
                 disabled={sourceFetchBusy}
                 onClick={() => { void fetchKeysFromSource(); }}>

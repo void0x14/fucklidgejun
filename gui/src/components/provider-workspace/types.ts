@@ -119,6 +119,11 @@ export interface ProviderAuthHandlers {
    */
   onRefreshKeysFromSource?: (provider: string) => Promise<boolean>;
   /**
+   * Turn the provider's external key source on or off. Optional: without it the panel
+   * renders no toggle and no fetch button, rather than a control that cannot work.
+   */
+  onConfigureKeySource?: (provider: string, enabled: boolean) => Promise<boolean>;
+  /**
    * Detect the upstream host each key of a multi-region provider authenticates on, persisting
    * the result so the pool round-robins without dispatching a key to the wrong endpoint.
    * Optional: rendered only when the provider declares more than one official host.

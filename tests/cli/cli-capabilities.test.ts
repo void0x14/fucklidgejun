@@ -329,6 +329,7 @@ const UNDECLARED_ROUTES_2026_08_28: readonly string[] = [
   "PUT /api/provider-context-caps",
   "PUT /api/providers/keys/active",
   "PUT /api/providers/keys/alias",
+  "PUT /api/providers/keys/source",
   "PUT /api/providers/{provider}/alias",
   "PUT /api/providers/{provider}/model-aliases",
   "PUT /api/routing-profiles",
