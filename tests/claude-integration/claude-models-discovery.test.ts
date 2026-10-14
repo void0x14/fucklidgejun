@@ -234,7 +234,7 @@ test("Codex discovery applies the OpenAI context cap to native rows (#1430)", as
     expect(json.models.find(model => model.slug === "gpt-5.6-sol")).toMatchObject({
       context_window: 272_000,
       max_context_window: 272_000,
-      auto_compact_token_limit: 244_800,
+      auto_compact_token_limit: 190_400,
     });
   } finally {
     await server.stop(true);

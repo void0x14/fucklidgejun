@@ -473,7 +473,7 @@ test("convergence projects the observed Daybreak row onto its selector and one b
     opencodex_catalog_kind: CODEX_ACCOUNT_BOUND_CATALOG_KIND,
     context_window: 272_000,
     max_context_window: 272_000,
-    auto_compact_token_limit: 244_800,
+    auto_compact_token_limit: 190_400,
     comp_hash: "3000",
     tool_mode: "code_mode_only",
     use_responses_lite: true,

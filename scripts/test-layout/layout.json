@@ -647,6 +647,7 @@
     "custom-model-catalog-migration.test.ts": "codex-integration",
     "custom-tool-compat.test.ts": "responses",
     "cyber-policy-error-fidelity.test.ts": "providers",
+    "context-overflow-failure.test.ts": "providers",
     "dashboard-uptime.test.ts": "gui",
     "data-plane-admission-identity.test.ts": "server",
     "debug-settings.test.ts": "server",

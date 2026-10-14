@@ -176,6 +176,39 @@ export function isClientClosedMessage(text: string): boolean {
   );
 }
 
+/**
+ * Wording that names the WINDOW rather than the request shape. Most upstreams send
+ * `context_length_exceeded`; the ones that do not still say it in the body. Verified
+ * 2026-10-14 on workbuddy/global:deepseek-v4.1-flash, which answered a 400 with code
+ * `prompt_too_long` and "prompt is too long: 1053246 tokens > 1048576 maximum" plus a
+ * "gateway_hint: request context exceeds the model's limit" — none of which the
+ * substring list matched, so the failure was reported to the user as a malformed request.
+ * Every alternative names the window and the amount that overflowed it, so a genuine shape
+ * error ("description is too long", "name is too long") cannot match.
+ */
+const CONTEXT_OVERFLOW_PATTERNS: readonly RegExp[] = [
+  /prompt[_ -]?too[_ -]?long/,
+  /prompt is too long/,
+  /(?:input|request|conversation|context)[^.\n]{0,40}(?:is|was) too long/,
+  /exceeds? the (?:model'?s|model-context|maximum|allowed)[^.\n]{0,20}limit/,
+  /exceeds? (?:the )?maximum (?:context )?(?:length|limit|number of tokens)/,
+  /input length and `?max_tokens`? exceed/,
+  /reduce history\/message size/,
+];
+
+/** Whether a provider body describes an over-full context window rather than a bad shape. */
+export function isContextOverflowText(text: string): boolean {
+  const lower = text.toLowerCase();
+  if (
+    lower.includes("context_length_exceeded") ||
+    lower.includes("context window") ||
+    lower.includes("context length") ||
+    lower.includes("maximum context") ||
+    lower.includes("too many tokens")
+  ) return true;
+  return CONTEXT_OVERFLOW_PATTERNS.some((pattern) => pattern.test(lower));
+}
+
 export function classifyError(status: number, type: string, message: string): OcxErrorPayload {
   const text = message.toLowerCase();
   if (type === "previous_response_not_found") {
@@ -217,13 +250,7 @@ export function classifyError(status: number, type: string, message: string): Oc
   if (type === "inbound_body_too_large") {
     return { message, type: "invalid_request_error", code: "inbound_body_too_large" };
   }
-  if (
-    text.includes("context_length_exceeded") ||
-    text.includes("context window") ||
-    text.includes("context length") ||
-    text.includes("maximum context") ||
-    text.includes("too many tokens")
-  ) {
+  if (isContextOverflowText(text)) {
     return { message, type: "invalid_request_error", code: "context_length_exceeded" };
   }
   // "Cursor resource limit exceeded" is emitted only for explicit request-size overflow

@@ -225,7 +225,7 @@ describe("combo catalog capability intersection", () => {
       owned_by: "combo",
       contextWindow: 128_000,
       maxInputTokens: 100_000,
-      autoCompactTokenLimit: 100_000,
+      autoCompactTokenLimit: 89_600,
       inputModalities: ["text"],
       reasoningEfforts: ["low", "medium"],
       defaultReasoningEffort: "medium",
@@ -240,7 +240,7 @@ describe("combo catalog capability intersection", () => {
     expect(derived).toMatchObject({
       contextWindow: 700_000,
       maxInputTokens: 700_000,
-      autoCompactTokenLimit: 630_000,
+      autoCompactTokenLimit: 489_999,
     });
   });
 
@@ -1226,13 +1226,13 @@ describe("combo catalog capability intersection", () => {
       };
       const rows = await gatherRoutedModels(config);
       expect(rows.find(row => row.provider === "combo" && row.id === "astra")).toMatchObject({
-        contextWindow: expected, maxInputTokens: expected, autoCompactTokenLimit: expected * 0.9,
+        contextWindow: expected, maxInputTokens: expected, autoCompactTokenLimit: expected * 0.7,
       });
       config.providers.unknown!.modelContextWindows = { "unknown-model": 100_000 };
       config.providers.unknown!.modelMaxInputTokens = { "unknown-model": 80_000 };
       const explicit = await gatherRoutedModels(config);
       expect(explicit.find(row => row.provider === "combo" && row.id === "astra")).toMatchObject({
-        contextWindow: 100_000, maxInputTokens: 80_000, autoCompactTokenLimit: 80_000,
+        contextWindow: 100_000, maxInputTokens: 80_000, autoCompactTokenLimit: 70_000,
       });
     }
   });
@@ -1722,7 +1722,7 @@ describe("combo catalog capability intersection", () => {
       contextWindow: 1_000_000,
       maxInputTokens: 1_000_000,
       maxOutputTokens: 128_000,
-      autoCompactTokenLimit: 900_000,
+      autoCompactTokenLimit: 700_000,
     });
   });
 
@@ -3513,7 +3513,7 @@ describe("Codex catalog routed normalization", () => {
     const entries = buildCatalogEntries(nativeTemplate(), [...NATIVE_OPENAI_MODELS], []);
     expect(entries.some(entry => entry.slug === "gpt-5.3-codex-spark")).toBe(false);
     expect(entries.find(entry => entry.slug === "gpt-5.5")).toMatchObject({
-      context_window: 272_000, max_context_window: 272_000, auto_compact_token_limit: 244_800,
+      context_window: 272_000, max_context_window: 272_000, auto_compact_token_limit: 190_400,
     });
   });
 
@@ -3531,7 +3531,7 @@ describe("Codex catalog routed normalization", () => {
     ]);
     expect(gpt56?.context_window).toBe(272_000);
     expect(gpt56?.max_context_window).toBe(272_000);
-    expect(gpt56?.auto_compact_token_limit).toBe(244_800);
+    expect(gpt56?.auto_compact_token_limit).toBe(190_400);
     expect((gpt55?.supported_reasoning_levels as { effort: string }[]).map(l => l.effort)).toEqual([
       "low", "medium", "high", "xhigh", "max", "ultra",
     ]);
@@ -3619,7 +3619,7 @@ describe("Codex catalog routed normalization", () => {
       const entry = entries.find(e => e.slug === slug);
       expect(entry?.context_window).toBe(cap);
       expect(entry?.max_context_window).toBe(cap);
-      expect(entry?.auto_compact_token_limit).toBe(244_800);
+      expect(entry?.auto_compact_token_limit).toBe(190_400);
     }
   });
 
@@ -3634,7 +3634,7 @@ describe("Codex catalog routed normalization", () => {
       display_name: "GPT-5.6-Sol",
       context_window: 922_000,
       max_context_window: 922_000,
-      auto_compact_token_limit: 829_800,
+      auto_compact_token_limit: 645_400,
       supported_reasoning_levels: [
         { effort: "low", description: "l" }, { effort: "high", description: "h" },
         { effort: "max", description: "m" }, { effort: "ultra", description: "u" },
@@ -3662,12 +3662,12 @@ describe("Codex catalog routed normalization", () => {
     const sol = merged.find(e => e.slug === "gpt-5.6-sol");
     expect(sol?.context_window).toBe(cap);
     expect(sol?.max_context_window).toBe(cap);
-    expect(sol?.auto_compact_token_limit).toBe(244_800);
+    expect(sol?.auto_compact_token_limit).toBe(190_400);
     // The backfilled luna row (upstream snapshot) is capped the same way.
     const luna = merged.find(e => e.slug === "gpt-5.6-luna");
     expect(luna?.context_window).toBe(cap);
     expect(luna?.max_context_window).toBe(cap);
-    expect(luna?.auto_compact_token_limit).toBe(244_800);
+    expect(luna?.auto_compact_token_limit).toBe(190_400);
   });
 
   test("preserved old-ladder native rows get the openai cap; retired gpt-5.4-mini is dropped (#1430)", () => {
@@ -3684,7 +3684,7 @@ describe("Codex catalog routed normalization", () => {
       display_name: "GPT-5.4-Mini",
       context_window: 272_000,
       max_context_window: 272_000,
-      auto_compact_token_limit: 244_800,
+      auto_compact_token_limit: 190_400,
     };
     const genuine55 = {
       ...template,
@@ -3692,7 +3692,7 @@ describe("Codex catalog routed normalization", () => {
       display_name: "GPT-5.5",
       context_window: 272_000,
       max_context_window: 272_000,
-      auto_compact_token_limit: 244_800,
+      auto_compact_token_limit: 190_400,
     };
     const merged = mergeCatalogEntriesForSync(
       [genuine54Mini, genuine55],
@@ -3717,7 +3717,7 @@ describe("Codex catalog routed normalization", () => {
     const gpt55 = merged.find(e => e.slug === "gpt-5.5");
     expect(gpt55?.context_window).toBe(cap);
     expect(gpt55?.max_context_window).toBe(cap);
-    expect(gpt55?.auto_compact_token_limit).toBe(180_000);
+    expect(gpt55?.auto_compact_token_limit).toBe(140_000);
   });
 
   test("nativeOpenAiContextWindow applies the openai cap as a ceiling only when provided", () => {
@@ -3788,7 +3788,7 @@ describe("Codex catalog routed normalization", () => {
     const daybreak = projected.find(entry => entry.slug === `main/${NATIVE_DAYBREAK_BLUE_MODEL}`);
     const sol = projected.find(entry => entry.slug === "gpt-5.6-sol");
     expect(daybreak).toBeDefined();
-    expect(daybreak?.auto_compact_token_limit).toBe(244_800);
+    expect(daybreak?.auto_compact_token_limit).toBe(190_400);
     expect(daybreak).toMatchObject({
       context_window: sol?.context_window,
       max_context_window: sol?.max_context_window,
@@ -3938,7 +3938,7 @@ describe("Codex catalog routed normalization", () => {
       display_name: "Daybreak Blue",
       context_window: 922_000,
       max_context_window: 922_000,
-      auto_compact_token_limit: 829_800,
+      auto_compact_token_limit: 645_400,
       comp_hash: "3000",
       tool_mode: "code_mode_only",
       use_responses_lite: true,
@@ -5598,7 +5598,7 @@ describe("Codex catalog routed normalization", () => {
 
     expect(routed?.context_window).toBe(1_000_000);
     expect(routed?.max_context_window).toBe(1_000_000);
-    expect(routed?.auto_compact_token_limit).toBe(900_000);
+    expect(routed?.auto_compact_token_limit).toBe(700_000);
     expect(routed?.input_modalities).toEqual(["text"]);
   });
 
@@ -5613,7 +5613,7 @@ describe("Codex catalog routed normalization", () => {
     for (const routed of [flash, pro]) {
       expect(routed?.context_window).toBe(1_048_576);
       expect(routed?.max_context_window).toBe(1_048_576);
-      expect(routed?.auto_compact_token_limit).toBe(943_718); // floor(1048576 * 0.9)
+      expect(routed?.auto_compact_token_limit).toBe(734_003); // floor(1048576 * 0.9)
       expect(routed?.input_modalities).toEqual(["text"]);
     }
     // The catalog rebuild falls back to the strict 128k default when metadata is missing,
@@ -5640,7 +5640,7 @@ describe("Codex catalog routed normalization", () => {
       const routed = entries.find(e => e.slug === `deepseek/${id}`);
       expect(routed?.context_window).toBe(1_048_576);
       expect(routed?.max_context_window).toBe(1_048_576);
-      expect(routed?.auto_compact_token_limit).toBe(943_718); // floor(1048576 * 0.9)
+      expect(routed?.auto_compact_token_limit).toBe(734_003); // floor(1048576 * 0.9)
       expect(routed?.input_modalities).toEqual(["text"]);
     }
   });
@@ -5653,20 +5653,20 @@ describe("Codex catalog routed normalization", () => {
 
     expect(routed?.context_window).toBe(350_000);
     expect(routed?.max_context_window).toBe(350_000);
-    expect(routed?.auto_compact_token_limit).toBe(315_000);
+    expect(routed?.auto_compact_token_limit).toBe(244_999);
     expect(routed?.input_modalities).toEqual(["text"]);
     expect(getModelMetadata("opencode-go", "deepseek-v4-pro")?.contextWindow).toBe(1_000_000);
   });
 
   test("opencode-go high-risk models use official jawcode metadata in the Codex catalog", () => {
     const cases = [
-      { id: "glm-5.2", context: 1_000_000, auto: 900_000, input: ["text"] },
+      { id: "glm-5.2", context: 1_000_000, auto: 700_000, input: ["text"] },
       // Upstream raised qwen3.5-plus to a 1M window and cut minimax-m3 to the 512K tier that
       // matches MiniMax's own <=512K pricing band; both are catalogue refreshes, not overrides.
-      { id: "qwen3.5-plus", context: 1_000_000, auto: 900_000, input: ["text", "image"] },
-      { id: "kimi-k2.7-code", context: 262_144, auto: 235_929, input: ["text", "image"] },
-      { id: "minimax-m3", context: 512_000, auto: 460_800, input: ["text", "image"] },
-      { id: "qwen3.7-max", context: 1_000_000, auto: 900_000, input: ["text"] },
+      { id: "qwen3.5-plus", context: 1_000_000, auto: 700_000, input: ["text", "image"] },
+      { id: "kimi-k2.7-code", context: 262_144, auto: 183_500, input: ["text", "image"] },
+      { id: "minimax-m3", context: 512_000, auto: 358_400, input: ["text", "image"] },
+      { id: "qwen3.7-max", context: 1_000_000, auto: 700_000, input: ["text"] },
     ] as const;
     const entries = buildCatalogEntries(nativeTemplate(), [], cases.map(({ id }) => ({ provider: "opencode-go", id })));
 
@@ -5693,7 +5693,7 @@ describe("Codex catalog routed normalization", () => {
 
     expect(routed?.context_window).toBe(1_048_576);
     expect(routed?.max_context_window).toBe(1_048_576);
-    expect(routed?.auto_compact_token_limit).toBe(943_718);
+    expect(routed?.auto_compact_token_limit).toBe(734_003);
   });
 
   test("opencode-go catalog sync appends official rows missing from /v1/models", () => {
@@ -5754,7 +5754,7 @@ describe("Codex catalog routed normalization", () => {
 
     expect(routed?.context_window).toBe(350_000);
     expect(routed?.max_context_window).toBe(350_000);
-    expect(routed?.auto_compact_token_limit).toBe(315_000);
+    expect(routed?.auto_compact_token_limit).toBe(244_999);
     expect(routed?.input_modalities).toEqual(["text", "image"]);
   });
 
@@ -5835,7 +5835,7 @@ describe("Codex catalog routed normalization", () => {
 
     expect(routed?.context_window).toBe(1_000_000);
     expect(routed?.max_context_window).toBe(1_000_000);
-    expect(routed?.auto_compact_token_limit).toBe(900_000);
+    expect(routed?.auto_compact_token_limit).toBe(700_000);
     expect(getModelMetadata("anthropic", "claude-sonnet-4-6")?.contextWindow).toBe(1_000_000);
   });
 
@@ -5847,7 +5847,7 @@ describe("Codex catalog routed normalization", () => {
 
     expect(routed?.context_window).toBe(262_144);
     expect(routed?.max_context_window).toBe(262_144);
-    expect(routed?.auto_compact_token_limit).toBe(235_929);
+    expect(routed?.auto_compact_token_limit).toBe(183_500);
     expect(routed?.input_modalities).toEqual(["text", "image"]);
   });
 
@@ -5941,7 +5941,7 @@ describe("Codex catalog routed normalization", () => {
     const routed = entries.find(e => e.slug === "relay/relay-model");
     expect(routed?.context_window).toBe(350_000);
     expect(routed?.max_context_window).toBe(350_000);
-    expect(routed?.auto_compact_token_limit).toBe(315_000);
+    expect(routed?.auto_compact_token_limit).toBe(244_999);
   });
 
   test("known routed metadata still restores the exact context window (#992)", () => {
@@ -5950,7 +5950,7 @@ describe("Codex catalog routed normalization", () => {
     ]);
     const routed = entries.find(e => e.slug === "relay/relay-model");
     expect(routed?.context_window).toBe(256_000);
-    expect(routed?.auto_compact_token_limit).toBe(Math.floor(256_000 * 0.9));
+    expect(routed?.auto_compact_token_limit).toBe(Math.floor(256_000 * 0.7));
   });
 
   test("model-specific reasoning-summary opt-out reaches the routed catalog (#323)", async () => {
@@ -6380,7 +6380,7 @@ describe("Codex catalog routed normalization", () => {
       .toMatchObject({
         contextWindow: 80_000,
         maxInputTokens: 80_000,
-        autoCompactTokenLimit: 72_000,
+        autoCompactTokenLimit: 56_000,
       });
   });
 
@@ -6414,7 +6414,7 @@ describe("Codex catalog routed normalization", () => {
 
     expect(routed?.context_window).toBe(350_000);
     expect(routed?.max_context_window).toBe(350_000);
-    expect(routed?.auto_compact_token_limit).toBe(315_000);
+    expect(routed?.auto_compact_token_limit).toBe(244_999);
   });
 
   test("a per-model contextWindow outranks the provider-wide one (#1073)", async () => {
@@ -6497,7 +6497,7 @@ describe("Codex catalog routed normalization", () => {
     });
     expect(routed?.context_window).toBe(350_000);
     expect(routed?.max_context_window).toBe(350_000);
-    expect(routed?.auto_compact_token_limit).toBe(315_000);
+    expect(routed?.auto_compact_token_limit).toBe(244_999);
   });
 
   test("upstream metadata smaller than the configured window wins (#1073)", async () => {
@@ -6564,7 +6564,7 @@ describe("Codex catalog routed normalization", () => {
     expect(models.find(model => model.id === "copilot-wide-model")?.contextWindow).toBe(1_000_000);
     expect(routed?.context_window).toBe(1_000_000);
     expect(routed?.max_context_window).toBe(1_000_000);
-    expect(routed?.auto_compact_token_limit).toBe(900_000);
+    expect(routed?.auto_compact_token_limit).toBe(700_000);
     expect(models.find(model => model.id === "copilot-existing-metadata")?.contextWindow).toBe(256_000);
     expect(models.find(model => model.id === "copilot-invalid-window")?.contextWindow).toBeUndefined();
   });
@@ -6597,7 +6597,7 @@ describe("Codex catalog routed normalization", () => {
     expect(fetchCalls).toBe(0);
     expect(routed?.context_window).toBe(321_000);
     expect(routed?.max_context_window).toBe(321_000);
-    expect(routed?.auto_compact_token_limit).toBe(288_900);
+    expect(routed?.auto_compact_token_limit).toBe(224_700);
     expect(routed?.input_modalities).toEqual(["text", "image"]);
   });
 
@@ -6850,7 +6850,7 @@ describe("OpenAI API trusted catalog augmentation", () => {
     });
     const entries = buildCatalogEntries(nativeTemplate(), [], models);
     expect(entries.find(row => row.slug === "openai-apikey/gpt-6-astra")).toMatchObject({
-      context_window: 1_050_000, auto_compact_token_limit: 922_000,
+      context_window: 1_050_000, auto_compact_token_limit: 735_000,
       additional_speed_tiers: ["fast"],
       // Routed catalogs advertise OCX's synthetic Ultra; the API wire ladder above stops at max.
       supported_reasoning_levels: ["low", "medium", "high", "xhigh", "max", "ultra"].map(effort => expect.objectContaining({ effort })),
@@ -6994,8 +6994,8 @@ describe("OpenAI API trusted catalog augmentation", () => {
       { provider: "openai-apikey", id: "gpt-5.6-sol", contextWindow: 1_050_000, maxInputTokens: 922_000 },
       { provider: "openai-apikey", id: "gpt-5.6-terra", contextWindow: 350_000, maxInputTokens: 922_000 },
     ]);
-    expect(entries.find(row => row.slug === "openai-apikey/gpt-5.6-sol")?.auto_compact_token_limit).toBe(922_000);
-    expect(entries.find(row => row.slug === "openai-apikey/gpt-5.6-terra")?.auto_compact_token_limit).toBe(315_000);
+    expect(entries.find(row => row.slug === "openai-apikey/gpt-5.6-sol")?.auto_compact_token_limit).toBe(735_000);
+    expect(entries.find(row => row.slug === "openai-apikey/gpt-5.6-terra")?.auto_compact_token_limit).toBe(244_999);
   });
 
   test("is a no-op when API tier is absent or disabled", () => {

@@ -449,7 +449,7 @@ export function ensureAutoCompactTokenLimit(entry: RawEntry): RawEntry {
     && entry.context_window > 0
     && typeof entry.auto_compact_token_limit !== "number"
   ) {
-    entry.auto_compact_token_limit = Math.floor(entry.context_window * 0.9);
+    entry.auto_compact_token_limit = clampAutoCompactTokenLimit(entry.context_window);
   }
   return entry;
 }
@@ -842,7 +842,7 @@ export function applyCatalogMetadata(entry: RawEntry, provider: string, modelId:
     const contextWindow = applyProviderContextCap(meta.contextWindow, contextCap) ?? meta.contextWindow;
     entry.context_window = contextWindow;
     entry.max_context_window = contextWindow;
-    entry.auto_compact_token_limit = Math.floor(contextWindow * 0.9);
+    entry.auto_compact_token_limit = clampAutoCompactTokenLimit(contextWindow);
   }
   if (Array.isArray(meta.input) && meta.input.length > 0) {
     entry.input_modalities = meta.input;

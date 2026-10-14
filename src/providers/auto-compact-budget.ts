@@ -10,14 +10,23 @@ function positiveSafeInteger(value: unknown): value is number {
 /**
  * Resolve a client-facing soft compaction budget without changing any hard
  * model limit. Configuration and measured input ceilings may only lower the
- * default 90% envelope.
+ * default envelope.
+ *
+ * The envelope is 70%, and it is a hard product rule, not a tuned number: a routed
+ * provider's reported prompt usage is not the quantity its ceiling check measures, so the
+ * client's meter always reaches its own 100% before the upstream has refused anything.
+ * 2026-10-14, workbuddy/global:deepseek-v4.1-flash: the meter read 663,534 of 950,000 (70%)
+ * while the upstream had already counted the same request at 1,053,246 against a 1,048,576
+ * ceiling and refused it. Budgeting at 90% meant the compaction never fired and the turn died
+ * at the wall. Compact at 70% instead, and let `modelAutoCompactTokenLimits` lower it further
+ * for a provider whose gap is known to be wider than that.
  */
 export function clampAutoCompactTokenLimit(
   contextWindow: number,
   maxInputTokens?: number,
   configuredLimit?: number,
 ): number {
-  const candidates = [Math.floor(contextWindow * 0.9), contextWindow];
+  const candidates = [Math.floor(contextWindow * 0.7), contextWindow];
   if (positiveSafeInteger(maxInputTokens)) candidates.push(maxInputTokens);
   if (positiveSafeInteger(configuredLimit)) candidates.push(configuredLimit);
   return Math.min(...candidates);

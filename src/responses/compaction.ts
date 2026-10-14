@@ -21,16 +21,60 @@ export const OCX_NATIVE_REPLAY_RECOVERY_NOTE =
   "Threads compacted through a routed provider can contain OpenCodeX-owned ocx1 state. "
   + "Before resuming one through native Codex, run `ocx recover-history --ocx-compaction <thread-id> --yes`.";
 
-/** Mirrors codex-rs core/templates/compact/prompt.md (the local-compaction instruction). */
+/**
+ * Mirrors codex-rs core/templates/compact/prompt.md (the local-compaction instruction), with
+ * the standing contract and the record of past attempts kept inside it.
+ *
+ * The stock instruction says "be concise", and a routed turn then loses the two things it can
+ * never get back: the rules the user established plus how they want to be spoken to, and the
+ * record of what was already tried. Without the second one the next model walks the same dead
+ * ends again and reads every failure as if it were new information. So this asks for a handover
+ * rather than a summary, and leaves the shape of the writing to the model: a fixed form turns
+ * the output into something a person has to decode before it can be used.
+ */
 export const COMPACT_PROMPT = `You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.
 
-Include:
-- Current progress and key decisions made
-- Important context, constraints, or user preferences
-- What remains to be done (clear next steps)
-- Any critical data, examples, or references needed to continue
+The next model has none of this conversation. It cannot see what you saw, it cannot ask you
+anything, and whatever you leave out is gone for good, including for the user, who would then
+have to explain all of it a second time.
 
-Be concise, structured, and focused on helping the next LLM seamlessly continue the work.`;
+So do not summarize and do not compress. Write the substance out in full, in plain readable
+prose that a person can follow without decoding a form. No template, no headings, no numbered
+entries unless the content really is a list.
+
+Before you write, make sure the handover really contains all of this:
+
+Who the user is, how they want to be spoken to, and every rule they have given you that still
+stands. If they ever corrected you on something, that correction is now one of their rules.
+Reproduce their wording rather than paraphrasing it into something vaguer.
+
+What the user is actually trying to get, in their own terms, and how far along the work is.
+
+Everything you have already tried. For each attempt, what the idea was, why you thought it was
+worth trying, exactly what you ran or asked or read, and exactly what came back, including the
+error text and the empty results. Keep the failed attempts and the dead ends, not just the ones
+that worked. A dead end written down here is a dead end the next model does not have to walk
+again, and a wrong guess written down here is one it does not have to make again.
+
+Which of those attempts actually worked, and what each one produced.
+
+What you decided and why, including the alternatives you rejected and the reason each was
+rejected. The reasons are what stop the next model from reopening a closed question.
+
+What you actually proved, and what you merely believe. Keep those apart, and name the evidence
+for anything you call proved.
+
+The numbers that matter, with their current values and where each number came from. If a number
+has not been measured, say that plainly instead of leaving it out, because a missing number
+reads like a zero.
+
+What is still open, and the single next action.
+
+Keep every name, path, command, identifier, version and key exactly as it was written. Never
+shorten them, never tidy them, never correct a spelling you are not sure about. If the user
+asked for a specific tone or a specific way of working, that survives into the handover.
+
+Write in plain sentences. Do not use em dashes anywhere, use a full stop or a comma instead.`;
 
 /** Mirrors codex-rs core/templates/compact/summary_prefix.md (framing for a replayed summary). */
 export const SUMMARY_PREFIX = "Another language model started to solve this problem and produced a summary of its thinking process. You also have access to the state of the tools that were used by that language model. Use this to build on the work that has already been done and avoid duplicating work. Here is the summary produced by the other language model, use the information in this summary to assist with your own analysis:";

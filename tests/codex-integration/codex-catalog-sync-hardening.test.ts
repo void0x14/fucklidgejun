@@ -198,7 +198,7 @@ describe("Codex catalog sync hardening", () => {
           ...nativeEntry("gpt-5.5", 0),
           context_window: 272_000,
           max_context_window: 272_000,
-          auto_compact_token_limit: 244_800,
+          auto_compact_token_limit: 190_400,
         },
         retired, ...(source === "account-catalog" ? [observed] : []),
       ] }));
@@ -243,7 +243,7 @@ describe("Codex catalog sync hardening", () => {
             opencodex_catalog_kind: "account-selector-v1",
             context_window: 272_000,
             max_context_window: 272_000,
-            auto_compact_token_limit: 244_800,
+            auto_compact_token_limit: 190_400,
           });
         expect(pass.catalog.some(row => row.slug === "gpt-future-native")).toBe(false);
         expect(pass.catalog.some(row => row.slug === "desktop/gpt-5.5")).toBe(true);
@@ -365,7 +365,7 @@ describe("Codex catalog sync hardening", () => {
           tool_mode: null,
           context_window: 128_000,
           max_context_window: 128_000,
-          auto_compact_token_limit: 115_200,
+          auto_compact_token_limit: 89_600,
         },
         {
           ...nativeEntry("gpt-5.6-sol", 1),
@@ -443,7 +443,7 @@ describe("Codex catalog sync hardening", () => {
     expect(firstBare).toMatchObject({
       context_window: 272_000,
       max_context_window: 272_000,
-      auto_compact_token_limit: 244_800,
+      auto_compact_token_limit: 190_400,
     });
     expect(firstTeam).toMatchObject({
       context_window: firstBare?.context_window,
@@ -532,7 +532,7 @@ describe("Codex catalog sync hardening", () => {
     expect(rows.find(row => row.slug === "team/gpt-daybreak-blue-latest")).toMatchObject({
       context_window: 272_000,
       max_context_window: 272_000,
-      auto_compact_token_limit: 244_800,
+      auto_compact_token_limit: 190_400,
       comp_hash: "3000",
       tool_mode: "code_mode_only",
       use_responses_lite: true,
@@ -632,7 +632,7 @@ describe("Codex catalog sync hardening", () => {
       display_name: "Daybreak Blue",
       context_window: 922_000,
       max_context_window: 922_000,
-      auto_compact_token_limit: 829_800,
+      auto_compact_token_limit: 645_400,
       comp_hash: "3000",
       tool_mode: "code_mode_only",
       use_responses_lite: true,

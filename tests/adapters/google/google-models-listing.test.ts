@@ -155,7 +155,7 @@ describe("Antigravity live model discovery", () => {
       expect(flashLow).toMatchObject({
         context_window: 1_048_576,
         max_context_window: 1_048_576,
-        auto_compact_token_limit: 943_718,
+        auto_compact_token_limit: 734_003,
         input_modalities: ["text", "image"],
       });
       expect(flashLow).not.toHaveProperty("default_reasoning_level");
@@ -166,7 +166,7 @@ describe("Antigravity live model discovery", () => {
       expect(future).toMatchObject({
         context_window: 333_333,
         max_context_window: 333_333,
-        auto_compact_token_limit: 299_999,
+        auto_compact_token_limit: 233_333,
         input_modalities: ["text"],
       });
       expect(future).not.toHaveProperty("default_reasoning_level");

@@ -1,6 +1,6 @@
 import { readBoundedResponseBody } from "../lib/bounded-body";
 import { redactSecretString } from "../lib/redact";
-import { isCyberPolicyCode, isCyberPolicyMessage } from "../lib/errors";
+import { isContextOverflowText, isCyberPolicyCode, isCyberPolicyMessage } from "../lib/errors";
 import { classifyKeyScopedFailure } from "./key-failure-class";
 
 function errorFields(body: string): { message: string; code?: string | number | null; type?: string; param?: string | null } {
@@ -43,8 +43,8 @@ export function providerFailureMessage(status: number, body: string): string {
   if (/model[_ -]?(?:not[_ -]?found|does[_ -]?not[_ -]?exist)|unknown model|no such model|model[^.]{0,80}(?:not available|not supported|does not exist)/i.test(text)) {
     return "Bu model sağlayıcıda bulunamadı. Sağlayıcı → Modeller bölümünden canlı listeyi yenileyip listedeki modeli seç.";
   }
-  if (status === 413 || /context[_ -]?length|maximum context|too many tokens/i.test(text)) {
-    return "İçerik modelin sınırını aşıyor. Sohbeti özetle veya daha uzun bağlam destekleyen bir model seç.";
+  if (status === 413 || isContextOverflowText(text)) {
+    return "Upstreamin kabul ettiği context window doldu, compaction yapınız.";
   }
   if (/reasoning|thinking|effort/i.test(text) && status === 400) {
     return "Model bu düşünme ayarını kabul etmiyor. Modelin sunduğu düşünme düzeylerinden birini seç.";
@@ -67,12 +67,21 @@ export async function humanizeProviderErrorResponse(response: Response): Promise
     if (body.displaySafe && !body.truncated) text = body.text;
   } catch { /* Yanıtsız veya bozuk hata gövdesinde durum koduyla açıklama yapılır. */ }
   const fields = errorFields(text);
+  // A window overflow is the one shape a Codex client can act on: it classifies
+  // `context_length_exceeded` as its own context-window failure and runs its compaction
+  // path, which a vendor code like `prompt_too_long` never reaches. Verified 2026-10-14:
+  // ocx forwarded that vendor code and the turn died with a generic "request format"
+  // sentence while the client sat at 70% of a window the provider had already closed.
+  const overflow = response.status === 413
+    || isContextOverflowText(`${fields.code ?? ""} ${fields.message}`);
   const headers = new Headers(response.headers);
   headers.delete("content-length"); headers.delete("content-encoding");
   headers.set("content-type", "application/json");
   return new Response(JSON.stringify({ error: {
-    type: fields.type ?? "upstream_error",
-    ...(fields.code !== undefined ? { code: fields.code } : {}),
+    type: overflow ? "invalid_request_error" : (fields.type ?? "upstream_error"),
+    ...(overflow
+      ? { code: "context_length_exceeded" }
+      : fields.code !== undefined ? { code: fields.code } : {}),
     ...(fields.param !== undefined ? { param: fields.param } : {}),
     message: providerFailureMessage(response.status, text),
     details: { status: response.status, ...(fields.code !== undefined ? { code: fields.code } : {}),

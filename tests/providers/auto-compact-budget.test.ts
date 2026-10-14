@@ -7,10 +7,12 @@ import {
 
 describe("per-model auto-compaction budgets", () => {
   test("configuration only lowers the effective hard-limit envelope", () => {
-    expect(clampAutoCompactTokenLimit(1_000)).toBe(900);
-    expect(clampAutoCompactTokenLimit(1_000, 800)).toBe(800);
-    expect(clampAutoCompactTokenLimit(1_000, 800, 700)).toBe(700);
-    expect(clampAutoCompactTokenLimit(1_000, 800, 5_000)).toBe(800);
+    expect(clampAutoCompactTokenLimit(1_000)).toBe(700);
+    expect(clampAutoCompactTokenLimit(1_000, 500)).toBe(500);
+    expect(clampAutoCompactTokenLimit(1_000, 800, 600)).toBe(600);
+    // A ceiling or a configured value ABOVE the 70% envelope cannot lift it back to 90%.
+    expect(clampAutoCompactTokenLimit(1_000, 800)).toBe(700);
+    expect(clampAutoCompactTokenLimit(1_000, 800, 5_000)).toBe(700);
   });
 
   test("one validation contract handles config, native ids, and PATCH tombstones", () => {

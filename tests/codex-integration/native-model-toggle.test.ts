@@ -211,7 +211,7 @@ describe("native GPT model toggles (bare slugs in disabledModels)", () => {
       providers: { openai: { modelAutoCompactTokenLimits: { "gpt-5.6-sol": 2_000_000 } } },
     } as never;
     expect(nativeModelRows(oversized).find(item => item.slug === "gpt-5.6-sol"))
-      .toMatchObject({ contextWindow: 272_000, maxInputTokens: 272_000, autoCompactTokenLimit: 244_800 });
+      .toMatchObject({ contextWindow: 272_000, maxInputTokens: 272_000, autoCompactTokenLimit: 190_400 });
   });
 
   test("the on-disk catalog entry lands at the same width as the dashboard row", () => {
@@ -578,7 +578,7 @@ describe("native GPT model toggles (bare slugs in disabledModels)", () => {
     expect(trusted).toMatchObject({
       context_window: 272_000,
       max_context_window: 272_000,
-      auto_compact_token_limit: 244_800,
+      auto_compact_token_limit: 190_400,
     });
     expect(malformed).toMatchObject({
       context_window: 128_000,

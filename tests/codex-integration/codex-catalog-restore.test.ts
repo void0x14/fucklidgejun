@@ -434,7 +434,7 @@ describe("Codex catalog restore", () => {
     expect(synced.find(m => m.slug === "gpt-6-astra")).toMatchObject({
       context_window: 272_000,
       max_context_window: 272_000,
-      auto_compact_token_limit: 244_800,
+      auto_compact_token_limit: 190_400,
     });
   }, { timeout: 15_000 });
 });

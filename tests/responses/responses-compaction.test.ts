@@ -408,7 +408,35 @@ describe("native Responses compaction passthrough", () => {
 describe("COMPACT_PROMPT", () => {
   test("mirrors the codex-rs checkpoint instruction", () => {
     expect(COMPACT_PROMPT).toContain("CONTEXT CHECKPOINT COMPACTION");
-    expect(COMPACT_PROMPT).toContain("What remains to be done");
+    expect(COMPACT_PROMPT).toContain("Create a handoff summary for another LLM");
+  });
+
+  test("asks for a handover rather than a compressed summary", () => {
+    expect(COMPACT_PROMPT).toContain("do not summarize and do not compress");
+    expect(COMPACT_PROMPT).toContain("plain readable");
+    // No fixed form: headings and a numbered ledger made the output something a person had to
+    // decode before it could be used, which is the opposite of a readable handover.
+    expect(COMPACT_PROMPT).not.toContain("## ");
+    expect(COMPACT_PROMPT).not.toContain("H<n>");
+    expect(COMPACT_PROMPT).not.toContain("Verdict:");
+  });
+
+  test("keeps the standing contract, the attempts and the numbers in the handover", () => {
+    for (const phrase of [
+      "every rule they have given you that still",
+      "Everything you have already tried",
+      "Keep the failed attempts and the dead ends",
+      "Which of those attempts actually worked",
+      "What you actually proved, and what you merely believe",
+      "The numbers that matter",
+      "has not been measured, say that plainly",
+      "the single next action",
+    ]) expect(COMPACT_PROMPT).toContain(phrase);
+  });
+
+  test("never asks for an em dash", () => {
+    expect(COMPACT_PROMPT).not.toContain("—");
+    expect(COMPACT_PROMPT).toContain("Do not use em dashes anywhere");
   });
 });
 
