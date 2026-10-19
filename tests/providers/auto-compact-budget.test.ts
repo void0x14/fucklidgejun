@@ -137,4 +137,70 @@ describe("measured auto-compaction trigger", () => {
     applyMeasuredAutoCompactTrigger([untouched], undefined);
     expect(untouched.auto_compact_token_limit).toBe(665_000);
   });
+
+  test("Case D — a context-overflow failure lowers the trigger to the last measured input", () => {
+    // The real case: last success measured 321,539, then every turn failed with
+    // prompt_too_long. 321,539 + 40% of 1,000,000 is 721,539, short of the ceiling, so the
+    // headroom check would keep the 70% default and compaction would never fire — while the
+    // provider keeps refusing every turn. The refusal IS the proof that 321,539 is already at
+    // the ceiling, so it becomes the trigger.
+    const overflowed = {
+      inputTokens: 321_539,
+      model: "deepseek-v4.1-flash",
+      provider: "workbuddy",
+      overflowed: true,
+    };
+    const atDefault: RawEntry = {
+      slug: "workbuddy/deepseek-v4.1-flash",
+      context_window: 1_000_000,
+      max_context_window: 1_000_000,
+      auto_compact_token_limit: 700_000,
+    };
+    applyMeasuredAutoCompactTrigger([atDefault], overflowed);
+    expect(atDefault.auto_compact_token_limit).toBe(321_539);
+
+    // Still a lower-only move: a config or catalog already below the measurement wins.
+    const alreadyLower: RawEntry = {
+      slug: "workbuddy/deepseek-v4.1-flash",
+      context_window: 1_000_000,
+      max_context_window: 1_000_000,
+      auto_compact_token_limit: 200_000,
+    };
+    applyMeasuredAutoCompactTrigger([alreadyLower], overflowed);
+    expect(alreadyLower.auto_compact_token_limit).toBe(200_000);
+  });
+
+  test("Case E — without an overflow the same measurement keeps the static envelope", () => {
+    // Same conversation, same 321,539, no refused turn: the next turn still fits with room to
+    // spare, so the 70% default stays and the measured input is not advertised.
+    const measured = { inputTokens: 321_539, model: "deepseek-v4.1-flash", provider: "workbuddy" };
+    const atDefault: RawEntry = {
+      slug: "workbuddy/deepseek-v4.1-flash",
+      context_window: 1_000_000,
+      max_context_window: 1_000_000,
+      auto_compact_token_limit: 700_000,
+    };
+    applyMeasuredAutoCompactTrigger([atDefault], measured);
+    expect(atDefault.auto_compact_token_limit).toBe(700_000);
+
+    // An explicit false is the same as absent: the flag has to be set to skip the headroom.
+    const explicitFalse: RawEntry = {
+      slug: "workbuddy/deepseek-v4.1-flash",
+      context_window: 1_000_000,
+      max_context_window: 1_000_000,
+      auto_compact_token_limit: 700_000,
+    };
+    applyMeasuredAutoCompactTrigger([explicitFalse], { ...measured, overflowed: false });
+    expect(explicitFalse.auto_compact_token_limit).toBe(700_000);
+
+    // The overflow flag cannot invent a trigger out of a non-measurement.
+    const noMeasurement: RawEntry = {
+      slug: "workbuddy/deepseek-v4.1-flash",
+      context_window: 1_000_000,
+      max_context_window: 1_000_000,
+      auto_compact_token_limit: 700_000,
+    };
+    applyMeasuredAutoCompactTrigger([noMeasurement], { ...measured, inputTokens: 0, overflowed: true });
+    expect(noMeasurement.auto_compact_token_limit).toBe(700_000);
+  });
 });

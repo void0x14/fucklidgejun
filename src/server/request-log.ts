@@ -6,6 +6,7 @@ import {
   CYBER_POLICY_ERROR_CODE,
   httpStatusFromTerminalError as httpStatusFromClassifiedTerminalError,
   isClientClosedMessage,
+  isContextOverflowText,
   isCyberPolicyCode,
   isCyberPolicyMessage,
   isRateLimitOrQuotaFailureMessage,
@@ -1685,6 +1686,64 @@ export function measuredConversationInput(
     if (typeof inputTokens !== "number" || !Number.isSafeInteger(inputTokens) || inputTokens <= 0) continue;
     if (!candidates.some(candidate => matchesLogConversationId(entry.conversationId, candidate))) continue;
     return { inputTokens, model: entry.model, provider: entry.provider };
+  }
+  return undefined;
+}
+
+/** Error codes that are themselves a verdict on the input's size, not on its shape. */
+const CONTEXT_OVERFLOW_ERROR_CODES: ReadonlySet<string> = new Set([
+  "context_length_exceeded",
+  "prompt_too_long",
+  "http_413",
+]);
+
+/**
+ * Whether one logged row proves this conversation's input no longer fits.
+ *
+ * A provider that refuses the turn has already counted the input against its own ceiling, so the
+ * refusal is a MEASUREMENT of the input — the only one available once every turn fails. The row's
+ * own code is checked first because the overflow remap (src/lib/errors.ts) makes it authoritative;
+ * `upstreamError` is the fallback for a vendor that stripped the structured code and left only
+ * "prompt is too long: 1053246 tokens > 1048576 maximum" in the body. Only failed rows count: a
+ * success row can carry a stray `upstreamError` scraped from a partial stream chunk.
+ */
+function isContextOverflowRow(entry: RequestLogEntry): boolean {
+  const failed = entry.status >= 400
+    || (entry.terminalStatus !== undefined && entry.terminalStatus !== "completed");
+  if (!failed) return false;
+  if (entry.errorCode !== undefined && CONTEXT_OVERFLOW_ERROR_CODES.has(entry.errorCode)) return true;
+  return isContextOverflowText(`${entry.errorCode ?? ""} ${entry.upstreamError ?? ""}`);
+}
+
+/**
+ * The conversation's newest context-overflow failure, if any.
+ *
+ * `measuredConversationInput` reads the newest row that REPORTED usage, so a conversation whose
+ * turns all died at the wall contributes nothing and the auto-compact trigger stays at the 70%
+ * default while the provider keeps refusing. This is the missing half: 321,539 tokens measured on
+ * the last success, then every turn failed with `prompt_too_long` — the failures are the evidence
+ * that 321,539 is already at the ceiling, and they are the newest thing the conversation has.
+ *
+ * `inputTokens` is the row's own reported usage when the provider counted it on the error, else 0;
+ * the trigger's input still comes from the last successful row, which is a real measurement.
+ */
+export function conversationOverflowedInput(
+  candidates: readonly string[],
+): { inputTokens: number; model: string; provider: string } | undefined {
+  if (candidates.length === 0) return undefined;
+  for (let index = requestLog.length - 1; index >= 0; index--) {
+    const entry = requestLog[index];
+    if (!entry) continue;
+    if (!candidates.some(candidate => matchesLogConversationId(entry.conversationId, candidate))) continue;
+    if (!isContextOverflowRow(entry)) continue;
+    const inputTokens = entry.usage?.inputTokens;
+    return {
+      inputTokens: typeof inputTokens === "number" && Number.isSafeInteger(inputTokens) && inputTokens > 0
+        ? inputTokens
+        : 0,
+      model: entry.model,
+      provider: entry.provider,
+    };
   }
   return undefined;
 }

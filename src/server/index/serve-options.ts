@@ -75,6 +75,7 @@ import {
 } from "../lifecycle";
 import {
   addFinalRequestLog,
+  conversationOverflowedInput,
   httpStatusForRequestLogTerminal,
   inspectResponseLogSsePayload,
   measuredConversationInput,
@@ -1014,7 +1015,16 @@ export function createServeOptions(ctx: ServeOptionsContext) {
             req.headers.get("thread-id"),
             req.headers.get("x-codex-parent-thread-id"),
           ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
-          applyMeasuredAutoCompactTrigger(entries, measuredConversationInput(conversationIds));
+          // A conversation whose turns all died at the wall has no successful row left to read a
+          // measurement from, so the trigger would stay at the 70% default while the provider kept
+          // refusing. The refusal itself is the measurement: it says the last successful input is
+          // already at the ceiling, so it becomes the trigger without waiting for the headroom.
+          const measured = measuredConversationInput(conversationIds);
+          const overflowed = conversationOverflowedInput(conversationIds);
+          applyMeasuredAutoCompactTrigger(
+            entries,
+            measured === undefined ? undefined : { ...measured, overflowed: overflowed !== undefined },
+          );
           return jsonResponse({
             models: applyNativeVisibility(
               entries,

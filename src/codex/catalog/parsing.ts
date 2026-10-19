@@ -466,10 +466,21 @@ export function isNativeOpenAiEntry(entry: RawEntry): boolean {
  * the upstream had counted 1,053,246 against 1,048,576 and refused the turn. The ceiling here is
  * the row's own advertised window (`max(context_window, max_context_window)`), and the limit only
  * ever moves DOWN — a measured trigger must not raise a threshold config or the catalog lowered.
+ *
+ * `measured.overflowed` is the one case that skips the headroom check. The headroom exists to
+ * guess whether the NEXT turn still fits; a refused turn has already answered that question, so
+ * 321,539 tokens measured on the last success followed by nothing but `prompt_too_long` must
+ * become the trigger rather than wait for 600,000. Without it the trigger sits at 70% of a window
+ * the provider has already closed and compaction never fires at all.
  */
 export function applyMeasuredAutoCompactTrigger(
   entries: RawEntry[],
-  measured: { inputTokens: number; model: string; provider: string } | undefined,
+  measured: {
+    inputTokens: number;
+    model: string;
+    provider: string;
+    overflowed?: boolean;
+  } | undefined,
 ): RawEntry[] {
   if (!measured) return entries;
   const slug = routedSlug(measured.provider, measured.model);
@@ -479,7 +490,10 @@ export function applyMeasuredAutoCompactTrigger(
       typeof entry.context_window === "number" ? entry.context_window : 0,
       typeof entry.max_context_window === "number" ? entry.max_context_window : 0,
     );
-    const limit = measuredAutoCompactTokenLimit(ceiling, measured.inputTokens);
+    const measuredFits = Number.isSafeInteger(measured.inputTokens) && measured.inputTokens > 0;
+    const limit = measured.overflowed === true && measuredFits
+      ? measured.inputTokens
+      : measuredAutoCompactTokenLimit(ceiling, measured.inputTokens);
     if (limit === undefined) continue;
     const existing = typeof entry.auto_compact_token_limit === "number"
       && Number.isSafeInteger(entry.auto_compact_token_limit)
