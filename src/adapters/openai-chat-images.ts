@@ -1,3 +1,4 @@
+import { MACHINE_CAPACITY_BYTES } from "../lib/translator-budget";
 import { parseDataUrl } from "./image";
 import {
   normalizeImageTargets,
@@ -10,7 +11,7 @@ import {
  * other request fields but is not a guarantee that the complete body fits an upstream
  * limit. Remote URLs are never fetched by request construction.
  */
-export const OPENAI_CHAT_IMAGE_BASE64_BUDGET = 3_670_016; // 3.5MiB
+export const OPENAI_CHAT_IMAGE_BASE64_BUDGET = MACHINE_CAPACITY_BYTES;
 
 export interface NormalizeOpenAIChatImagesOptions
   extends Pick<NormalizeOptions, "encode" | "tierBias" | "validate"> {}

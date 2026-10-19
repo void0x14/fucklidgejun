@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { gunzipSync, inflateRawSync, inflateSync, zstdDecompressSync } from "node:zlib";
-import type { TranslatorBudget } from "../lib/translator-budget";
+import { MACHINE_CAPACITY_BYTES, type TranslatorBudget } from "../lib/translator-budget";
 
 /**
  * Request-body decompression for the /v1/responses data plane.
@@ -20,7 +20,7 @@ import type { TranslatorBudget } from "../lib/translator-budget";
  * own local Codex over loopback, so the bomb threat is weak; this cap is really an OOM guard. Keep it
  * generous enough that ordinary multi-image sessions decode, while still bounding a runaway body.
  */
-export const MAX_DECOMPRESSED_BODY_BYTES = 256 * 1024 * 1024;
+export const MAX_DECOMPRESSED_BODY_BYTES = MACHINE_CAPACITY_BYTES;
 
 /**
  * Hard ceiling on the opt-in `maxInboundBodyBytes` (#3573).
@@ -34,7 +34,7 @@ export const MAX_DECOMPRESSED_BODY_BYTES = 256 * 1024 * 1024;
  * graph), so peak RSS is a MULTIPLE of whatever is admitted here. 512 MiB is the largest value
  * that keeps that multiple survivable on an ordinary machine, and it is what #3573 asked for.
  */
-export const MAX_CONFIGURABLE_INBOUND_BODY_BYTES = 512 * 1024 * 1024;
+export const MAX_CONFIGURABLE_INBOUND_BODY_BYTES = MACHINE_CAPACITY_BYTES;
 
 /** Floor for the opt-in. Below this an ordinary multi-image turn cannot be admitted at all. */
 export const MIN_CONFIGURABLE_INBOUND_BODY_BYTES = 1024 * 1024;
