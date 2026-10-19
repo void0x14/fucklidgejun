@@ -5,6 +5,7 @@ import { finishRequestAttempt, type RequestLogContext } from "../request-log";
 import { linkRequestSessionLane } from "../request-log-conversation";
 import type { OcxConfig } from "../../types";
 import type { RouteCandidateTrace, RouteDecisionTraceV1 } from "../../routing/trace";
+import { knownModelIdsForProvider } from "../../router";
 import { handleResponses as handleResponsesCore } from "./core";
 import { requestPacingOverloadResponse } from "./pacing-overload";
 import { captureExplicitOpenAiCallerAuth } from "../../providers/openai-sidecar";
@@ -44,6 +45,33 @@ export function rankPolicyFallbackCandidates(
     .map(({ candidate }) => candidate);
 }
 
+/**
+ * Remaining candidates for a route that picked ONE provider: every other enabled provider
+ * whose own catalog carries the model id that just failed.
+ *
+ * A bare (or explicitly namespaced) model request has no declared ladder, so the only honest
+ * alternative is the same model on a provider that advertises it — config list, default model,
+ * registry seed or live cache, the exact evidence `routeModel` resolves `<provider>/<model>`
+ * against. A provider that does not carry the id is skipped rather than tried: it could only
+ * answer "unknown model", which is not progress. Config order is kept so the hop is stable.
+ */
+export function sameModelFallbackCandidates(
+  config: OcxConfig,
+  selected: Pick<RouteCandidateTrace, "provider" | "model">,
+  tried: ReadonlySet<string>,
+): Array<Pick<RouteCandidateTrace, "provider" | "model">> {
+  const candidates: Array<Pick<RouteCandidateTrace, "provider" | "model">> = [];
+  // A retry path must never throw: an absent provider table simply means no candidate.
+  for (const [name, provider] of Object.entries(config.providers ?? {})) {
+    if (name === selected.provider || provider.disabled === true) continue;
+    const candidate = { provider: name, model: selected.model };
+    if (tried.has(candidateKey(candidate))) continue;
+    if (!knownModelIdsForProvider(name, provider, config).includes(selected.model)) continue;
+    candidates.push(candidate);
+  }
+  return candidates;
+}
+
 function requestWithCandidate(
   req: Request,
   rawBody: Record<string, unknown>,
@@ -81,7 +109,13 @@ function errorCodeFromText(text: string): string | undefined {
   }
 }
 
-async function shouldHopPolicyCandidate(response: Response, signal?: AbortSignal): Promise<boolean> {
+/**
+ * Whether this pre-success failure may be replayed against the next candidate. The verdict is
+ * the combo ladder's own — one classifier for "the request is impossible" versus "this target
+ * could not serve it" — so a client-shape refusal (bad request body, rejected caller auth) ends
+ * the chain exactly where it ends a combo hop.
+ */
+async function shouldHopCandidate(response: Response, signal?: AbortSignal): Promise<boolean> {
   if (response.status < 400 || signal?.aborted) return false;
   try {
     const inspected = await readBoundedResponseBody(response.clone(), { signal });
@@ -97,7 +131,7 @@ function isPolicyDecision(trace: RouteDecisionTraceV1 | undefined): trace is Rou
 }
 
 /** Finalize the failed physical attempt so the retry receives a fresh attempt row. */
-function finishFailedPolicyAttempt(logCtx: RequestLogContext, status: number): void {
+function finishFailedHopAttempt(logCtx: RequestLogContext, status: number): void {
   const attempt = logCtx.activeAttempt;
   if (attempt) {
     const startedAt = logCtx.activeAttemptStartedAt ?? Date.now();
@@ -114,10 +148,18 @@ function finishFailedPolicyAttempt(logCtx: RequestLogContext, status: number): v
 }
 
 /**
- * Run a Responses request and, only for an explicitly selected policy profile,
- * hop to the next eligible policy candidate after a retryable pre-success
- * failure. The initial policy trace remains the canonical selection evidence;
- * physical retries continue to accumulate in the existing request attempts.
+ * Run a Responses request and hop to the next eligible candidate after a retryable pre-success
+ * failure, so one upstream 4xx/5xx does not end the turn.
+ *
+ * Two candidate sources, both already-existing selections:
+ * - an explicitly selected policy profile ranks its declared candidates by score;
+ * - every other route is a single-provider pick, so the candidates are the other enabled
+ *   providers whose own catalog carries the model id that just failed.
+ *
+ * The initial trace remains the canonical selection evidence and the request body is replayed
+ * byte-for-byte apart from the `model` selector; physical retries continue to accumulate in the
+ * existing request attempts. Combo routes are left to `executeComboResponses`, which already
+ * runs its own declared target ladder.
  */
 export async function handleResponsesWithPolicyFallback(
   req: Request,
@@ -171,19 +213,25 @@ export async function handleResponsesWithPolicyFallback(
   }
   const initialTrace = logCtx.routeDecision;
   const initialRequestedModel = logCtx.requestedModel;
-  if (!rawBody || !isPolicyDecision(initialTrace)) return response;
+  if (!rawBody || !initialTrace) return response;
+  // A combo already runs its declared target ladder inside core. Hopping here would dispatch the
+  // same turn to a second target behind that ladder's own transition and cooldown bookkeeping.
+  if (initialTrace.routeKind === "combo") return response;
+  const policyTrace = isPolicyDecision(initialTrace) ? initialTrace : null;
 
   const tried = new Set<string>([
     candidateKey({ provider: initialTrace.selected.provider, model: initialTrace.selected.model }),
   ]);
 
-  while (!storedPool401ReplayDispatched && await shouldHopPolicyCandidate(response, req.signal)) {
+  while (!storedPool401ReplayDispatched && await shouldHopCandidate(response, req.signal)) {
     if (req.signal.aborted) return response;
-    const next = rankPolicyFallbackCandidates(initialTrace, tried)[0];
+    const next = policyTrace
+      ? rankPolicyFallbackCandidates(policyTrace, tried)[0]
+      : sameModelFallbackCandidates(config, initialTrace.selected, tried)[0];
     if (!next) return response;
     tried.add(candidateKey(next));
 
-    finishFailedPolicyAttempt(logCtx, response.status);
+    finishFailedHopAttempt(logCtx, response.status);
     const retryRequest = requestWithCandidate(req, rawBody, next);
     try {
       try {

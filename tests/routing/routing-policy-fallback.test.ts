@@ -9,6 +9,7 @@ import { fakeChatGptJwt } from "../helpers/fake-chatgpt-jwt";
 import {
   handleResponsesWithPolicyFallback,
   rankPolicyFallbackCandidates,
+  sameModelFallbackCandidates,
 } from "../../src/server/responses/policy-fallback";
 
 function policyTrace(): RouteDecisionTraceV1 {
@@ -314,6 +315,154 @@ describe("policy candidate fallback", () => {
     });
     expect(response.status).toBe(200);
     expect(await response.text()).toContain("hello");
+    expect(calls).toBe(1);
+  });
+});
+
+function singleProviderTrace(overrides: Partial<RouteDecisionTraceV1> = {}): RouteDecisionTraceV1 {
+  return {
+    version: 1,
+    decisionId: "decision-2",
+    createdAt: 1,
+    requestedModel: "provider-a/model-x",
+    routeKind: "explicit-provider",
+    requirements: [],
+    candidates: [
+      { provider: "provider-a", model: "model-x", eligible: true, exclusions: [] },
+    ],
+    selected: {
+      candidateIndex: 0,
+      provider: "provider-a",
+      model: "model-x",
+      reason: "explicit-provider-namespace",
+    },
+    ...overrides,
+  };
+}
+
+/**
+ * provider-b carries the same model id, provider-c carries a different one, provider-d carries
+ * the same one but is disabled. Only provider-b is a real candidate.
+ */
+function siblingConfig(): OcxConfig {
+  return {
+    port: 0,
+    defaultProvider: "provider-a",
+    providers: {
+      "provider-a": { adapter: "openai-chat", models: ["model-x"], baseUrl: "https://a.example" },
+      "provider-b": { adapter: "openai-chat", models: ["model-x"], baseUrl: "https://b.example" },
+      "provider-c": { adapter: "openai-chat", models: ["model-y"], baseUrl: "https://c.example" },
+      "provider-d": { adapter: "openai-chat", models: ["model-x"], baseUrl: "https://d.example", disabled: true },
+    },
+  } as unknown as OcxConfig;
+}
+
+function requestFor(model: string, input: string): Request {
+  return new Request("http://localhost/v1/responses", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model, input, stream: false }),
+  });
+}
+
+describe("single-provider candidate fallback", () => {
+  test("offers only other enabled providers that carry the failing model id", () => {
+    const candidates = sameModelFallbackCandidates(
+      siblingConfig(),
+      { provider: "provider-a", model: "model-x" },
+      new Set(["provider-a\u0000model-x"]),
+    );
+    expect(candidates).toEqual([{ provider: "provider-b", model: "model-x" }]);
+  });
+
+  test("a 503 retries the identical body on the next provider carrying the model", async () => {
+    // The whole point of the change: an overloaded/5xx upstream must not end the turn while a
+    // provider that serves the same model is still configured and enabled.
+    const trace = singleProviderTrace();
+    const logCtx = { requestedModel: "provider-a/model-x", routeDecision: trace, attempts: [] } as unknown as RequestLogContext;
+    const bodies: Array<Record<string, unknown>> = [];
+    const payload = "context-".repeat(512);
+
+    const response = await handleResponsesWithPolicyFallback(
+      requestFor("provider-a/model-x", payload),
+      siblingConfig(),
+      logCtx,
+      {},
+      {
+        runCore: async (req, _config, childLog) => {
+          const body = await req.clone().json() as Record<string, unknown>;
+          bodies.push(body);
+          childLog.routeDecision = trace;
+          seedAttempt(childLog, "provider-a", String(body.model));
+          if (bodies.length === 1) {
+            return Response.json(
+              { error: { message: "server is overloaded", type: "upstream_error", code: "server_is_overloaded" } },
+              { status: 503 },
+            );
+          }
+          return Response.json({ id: "resp", object: "response", status: "completed", output: [] });
+        },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(bodies.map(body => body.model)).toEqual(["provider-a/model-x", "provider-b/model-x"]);
+    // Nothing was trimmed, summarised or dropped to make the retry fit.
+    expect(bodies[1]!.input).toBe(payload);
+    expect(bodies[1]).toEqual({ ...bodies[0]!, model: "provider-b/model-x" });
+    expect(logCtx.routeDecision).toBe(trace);
+    expect(logCtx.requestedModel).toBe("provider-a/model-x");
+    expect(logCtx.attempts).toHaveLength(2);
+    expect(logCtx.attempts?.[0]).toMatchObject({ provider: "provider-a", status: 503 });
+  });
+
+  test("a non-retryable 400 from the selected provider is surfaced unchanged", async () => {
+    const trace = singleProviderTrace();
+    const logCtx = { requestedModel: "provider-a/model-x", routeDecision: trace, attempts: [] } as unknown as RequestLogContext;
+    const seenModels: string[] = [];
+
+    const response = await handleResponsesWithPolicyFallback(
+      requestFor("provider-a/model-x", "hello"),
+      siblingConfig(),
+      logCtx,
+      {},
+      {
+        runCore: async (req, _config, childLog) => {
+          const body = await req.clone().json() as { model?: string };
+          seenModels.push(String(body.model));
+          childLog.routeDecision = trace;
+          return Response.json(
+            { error: { message: "invalid request", type: "invalid_request_error", code: "invalid_request_error" } },
+            { status: 400 },
+          );
+        },
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(seenModels).toEqual(["provider-a/model-x"]);
+  });
+
+  test("a combo route keeps its own ladder instead of being hopped twice", async () => {
+    const trace = singleProviderTrace({ routeKind: "combo" });
+    const logCtx = { requestedModel: "combo/daily", routeDecision: trace, attempts: [] } as unknown as RequestLogContext;
+    let calls = 0;
+
+    const response = await handleResponsesWithPolicyFallback(
+      requestFor("combo/daily", "hello"),
+      siblingConfig(),
+      logCtx,
+      {},
+      {
+        runCore: async (_req, _config, childLog) => {
+          calls += 1;
+          childLog.routeDecision = trace;
+          return Response.json({ error: { message: "server is overloaded", code: "server_is_overloaded" } }, { status: 503 });
+        },
+      },
+    );
+
+    expect(response.status).toBe(503);
     expect(calls).toBe(1);
   });
 });
