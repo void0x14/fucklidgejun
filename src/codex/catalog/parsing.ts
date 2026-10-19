@@ -32,7 +32,7 @@ import upstreamModelsSnapshot from "../data/upstream-models.json";
 
 
 import { NATIVE_OPENAI_CONTEXT_OVERRIDES, SUPPORTED_NATIVE_OPENAI_SLUGS, UPSTREAM_NATIVE_ENTRIES, hasNativeOpenAiCapabilityMetadata, nativeMultiAgentVersion, nativeOpenAiAutoCompactTokenLimit, nativeOpenAiContextWindow, nativeOpenAiMaxInputTokens, type NativeContextLimitsInput } from "./metadata";
-import { clampAutoCompactTokenLimit } from "../../providers/auto-compact-budget";
+import { clampAutoCompactTokenLimit, measuredAutoCompactTokenLimit } from "../../providers/auto-compact-budget";
 import { trustedAccountBoundNativeCatalogSlug } from "./account-models";
 import { CODEX_NATIVE_ALIAS_CATALOG_KIND } from "./kinds";
 import { NATIVE_GPT6_ASTRA_MODEL } from "./native-models";
@@ -456,6 +456,39 @@ export function ensureAutoCompactTokenLimit(entry: RawEntry): RawEntry {
 
 export function isNativeOpenAiEntry(entry: RawEntry): boolean {
   return typeof entry.slug === "string" && !entry.slug.includes("/");
+}
+
+/**
+ * Lower one routed row's compaction trigger to the conversation's measured input.
+ *
+ * `clampAutoCompactTokenLimit`'s 70% envelope is read off the client's meter, which reports the
+ * PREVIOUS turn and therefore never reaches it: measured 663,534 / 950,000 on the client while
+ * the upstream had counted 1,053,246 against 1,048,576 and refused the turn. The ceiling here is
+ * the row's own advertised window (`max(context_window, max_context_window)`), and the limit only
+ * ever moves DOWN — a measured trigger must not raise a threshold config or the catalog lowered.
+ */
+export function applyMeasuredAutoCompactTrigger(
+  entries: RawEntry[],
+  measured: { inputTokens: number; model: string; provider: string } | undefined,
+): RawEntry[] {
+  if (!measured) return entries;
+  const slug = routedSlug(measured.provider, measured.model);
+  for (const entry of entries) {
+    if (typeof entry.slug !== "string" || !slugsEquivalent(entry.slug, slug)) continue;
+    const ceiling = Math.max(
+      typeof entry.context_window === "number" ? entry.context_window : 0,
+      typeof entry.max_context_window === "number" ? entry.max_context_window : 0,
+    );
+    const limit = measuredAutoCompactTokenLimit(ceiling, measured.inputTokens);
+    if (limit === undefined) continue;
+    const existing = typeof entry.auto_compact_token_limit === "number"
+      && Number.isSafeInteger(entry.auto_compact_token_limit)
+      && entry.auto_compact_token_limit > 0
+      ? entry.auto_compact_token_limit
+      : undefined;
+    entry.auto_compact_token_limit = existing === undefined ? limit : Math.min(existing, limit);
+  }
+  return entries;
 }
 
 /**

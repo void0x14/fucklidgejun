@@ -77,12 +77,13 @@ import {
   addFinalRequestLog,
   httpStatusForRequestLogTerminal,
   inspectResponseLogSsePayload,
+  measuredConversationInput,
   nextRequestLogId,
   recordFirstOutput,
   type RequestLogContext,
   type RequestLogEntry,
 } from "../request-log";
-import { sessionLaneIdFromRequest } from "../request-log-conversation";
+import { sessionIdHeaderFromRequest, sessionLaneIdFromRequest } from "../request-log-conversation";
 import { responseWithDeferredRequestLog } from "../relay";
 import { rewriteGrokForeignPaymentRequired } from "../grok-foreign-billing";
 import {
@@ -824,7 +825,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
           }
           throw error;
         }
-        const { accountBoundNativeOpenAiSlugsBySelector, applyNativeVisibility, buildCatalogEntries, configuredNativeAliasSlugs, desktopAllowlistSuppressedNativeSlugs, disabledNativeSlugs, exactComboCatalogSlugs, loadCatalogTemplate, NATIVE_OPENAI_MODELS, nativeContextLimits, nativeInputModalities, nativeOpenAiContextWindow, nativeOpenAiMaxOutputTokens, nativeOpenAiContextTier, nativeOpenAiSlugs, nativeReasoningEfforts, nativeDefaultReasoningEffort, shouldIncludeAccountBoundNativeOpenAi, shouldIncludeNativeOpenAi, uniqueCatalogModelsForRawPublicList, visibleCodexAccountSelectors, visibleNativeSlugs, desktopVisibleNativeSlugs } = await import("../../codex/catalog");
+        const { accountBoundNativeOpenAiSlugsBySelector, applyMeasuredAutoCompactTrigger, applyNativeVisibility, buildCatalogEntries, configuredNativeAliasSlugs, desktopAllowlistSuppressedNativeSlugs, disabledNativeSlugs, exactComboCatalogSlugs, loadCatalogTemplate, NATIVE_OPENAI_MODELS, nativeContextLimits, nativeInputModalities, nativeOpenAiContextWindow, nativeOpenAiMaxOutputTokens, nativeOpenAiContextTier, nativeOpenAiSlugs, nativeReasoningEfforts, nativeDefaultReasoningEffort, shouldIncludeAccountBoundNativeOpenAi, shouldIncludeNativeOpenAi, uniqueCatalogModelsForRawPublicList, visibleCodexAccountSelectors, visibleNativeSlugs, desktopVisibleNativeSlugs } = await import("../../codex/catalog");
         const { ACCOUNT_GATED_NATIVE_OPENAI_MODELS } = await import("../../codex/catalog/native-models");
         const includeNativeOpenAi = shouldIncludeNativeOpenAi(config);
         const includeAccountBoundNativeOpenAi = shouldIncludeAccountBoundNativeOpenAi(config);
@@ -1004,6 +1005,16 @@ export function createServeOptions(ctx: ServeOptionsContext) {
             config.keepNativeChatGptOnV1 === true,
             config.modelPickerOrder,
           );
+          // The client's context meter reports the PREVIOUS turn's provider input, so a fixed
+          // share of the window is always read one turn late and compaction never fires before
+          // the upstream refuses the turn. Drive the advertised trigger from this conversation's
+          // own measured input instead, whenever the next turn would no longer fit.
+          const conversationIds = [
+            sessionIdHeaderFromRequest(req.headers),
+            req.headers.get("thread-id"),
+            req.headers.get("x-codex-parent-thread-id"),
+          ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+          applyMeasuredAutoCompactTrigger(entries, measuredConversationInput(conversationIds));
           return jsonResponse({
             models: applyNativeVisibility(
               entries,

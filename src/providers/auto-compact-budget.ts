@@ -32,6 +32,29 @@ export function clampAutoCompactTokenLimit(
   return Math.min(...candidates);
 }
 
+/** Headroom one turn may consume: measured single-turn growth reached ~39% of the window. */
+export const AUTO_COMPACT_TURN_HEADROOM_SHARE = 0.4;
+
+/**
+ * The conversation's OWN measured input, once the next turn would no longer fit.
+ *
+ * The client's meter reports the PREVIOUS turn's provider input, so any fixed share of the
+ * window is read one turn late: 70% of 950,000 (663,534) sat next to an upstream that had
+ * already counted 1,053,246 against a 1,048,576 ceiling. Advertise the measured input instead
+ * as soon as it plus one turn's headroom reaches the ceiling; below that boundary the static
+ * envelope stays in charge and this returns undefined.
+ */
+export function measuredAutoCompactTokenLimit(
+  ceiling: number,
+  measuredInputTokens: number,
+): number | undefined {
+  if (!positiveSafeInteger(measuredInputTokens)) return undefined;
+  if (!Number.isFinite(ceiling) || ceiling <= 0) return undefined;
+  return measuredInputTokens + ceiling * AUTO_COMPACT_TURN_HEADROOM_SHARE >= ceiling
+    ? measuredInputTokens
+    : undefined;
+}
+
 export type AutoCompactBudgetValidationOptions = Readonly<{
   /** PATCH accepts null for whole-map and per-key deletion. */
   allowTombstones?: boolean;

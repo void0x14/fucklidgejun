@@ -1665,6 +1665,30 @@ export function aggregateAttemptUsage(
   return { usage: aggregate, status, totalTokens };
 }
 
+/**
+ * The conversation's own measured input, from the newest row that reported one.
+ *
+ * A client's context meter is the PREVIOUS turn's provider-reported input, so it lags a turn
+ * behind the quantity the upstream actually counts. This reads the newest positive
+ * `usage.inputTokens` row for any of `candidates` (raw client ids; `matchesLogConversationId`
+ * accepts the digest or its preimage) straight out of the Logs ring buffer, so the catalog can
+ * advertise a compaction trigger the meter has not reached yet.
+ */
+export function measuredConversationInput(
+  candidates: readonly string[],
+): { inputTokens: number; model: string; provider: string } | undefined {
+  if (candidates.length === 0) return undefined;
+  for (let index = requestLog.length - 1; index >= 0; index--) {
+    const entry = requestLog[index];
+    if (!entry) continue;
+    const inputTokens = entry.usage?.inputTokens;
+    if (typeof inputTokens !== "number" || !Number.isSafeInteger(inputTokens) || inputTokens <= 0) continue;
+    if (!candidates.some(candidate => matchesLogConversationId(entry.conversationId, candidate))) continue;
+    return { inputTokens, model: entry.model, provider: entry.provider };
+  }
+  return undefined;
+}
+
 export function getRequestLogEntries(): RequestLogEntry[] { return requestLog; }
 
 /** Test-only process-state reset for isolated integration harnesses. */
