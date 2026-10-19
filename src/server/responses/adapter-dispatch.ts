@@ -11,10 +11,14 @@ import { trackStreamLifetime } from "../lifecycle";
 import {
   recordAdapterReasoning,
   recordAdapterTier,
+  recordConversationOversize,
   noteAttemptSend,
   sealRequestAttemptIdentity,
   recordAttemptCredentialSource,
 } from "../request-log";
+import { conversationIdCandidatesFromRequest } from "../request-log-conversation";
+import { inputSizeAgainstCeiling } from "./input-admission";
+import { nativeContextLimits } from "../../codex/catalog";
 import { clientCancelledResponse, readDisplaySafeErrorText, normalizeUpstreamErrorText } from "./core-errors";
 import { redactSecretString } from "../../lib/redact";
 import { waitForProviderRequestSlot } from "../../providers/request-pacing";
@@ -264,6 +268,33 @@ export async function prepareAdapterExchange(
   // Capture it in a const so the fetch callbacks read a narrowed, immutable value
   // (TypeScript drops narrowing for a `let` captured by a nested function).
   const builtInitialRequest = initialRequest;
+  // Decide "this conversation is oversized" HERE, from the body this proxy is about to send,
+  // instead of waiting for a provider to say so. A turn that fails with a 5xx, a timeout or a
+  // dropped stream never reports an overflow code, so the auto-compact trigger would stay at its
+  // default while every turn kept failing — even though the request the proxy itself received was
+  // provably larger than the model's ceiling. Same estimator and same ceiling as the admission
+  // gate, but the gate's 2.5x tolerance is a refusal budget, not a measurement, so the record
+  // threshold is the raw ceiling.
+  //
+  // Recorded only. This turn is dispatched exactly as it would have been: blocking it is the
+  // admission gate's job, and the client has to be told to compact by the next catalog fetch, not
+  // by losing the turn it is currently waiting on.
+  const inputSize = inputSizeAgainstCeiling(
+    parsed,
+    route.provider,
+    route.providerName,
+    route.modelId,
+    nativeContextLimits(config),
+  );
+  if (inputSize.ceiling !== null) {
+    recordConversationOversize({
+      conversationIds: conversationIdCandidatesFromRequest(req.headers),
+      estimatedTokens: inputSize.estimatedTokens,
+      ceiling: inputSize.ceiling,
+      model: route.modelId,
+      provider: route.providerName,
+    });
+  }
   transportState.sameTargetRequest = builtInitialRequest;
   transportState.sameTargetParsed = parsed;
   transportState.sameTargetToken = transportState.transportToken;

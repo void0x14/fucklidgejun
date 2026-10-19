@@ -84,7 +84,10 @@ import {
   type RequestLogContext,
   type RequestLogEntry,
 } from "../request-log";
-import { sessionIdHeaderFromRequest, sessionLaneIdFromRequest } from "../request-log-conversation";
+import {
+  conversationIdCandidatesFromRequest,
+  sessionLaneIdFromRequest,
+} from "../request-log-conversation";
 import { responseWithDeferredRequestLog } from "../relay";
 import { rewriteGrokForeignPaymentRequired } from "../grok-foreign-billing";
 import {
@@ -1010,11 +1013,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
           // share of the window is always read one turn late and compaction never fires before
           // the upstream refuses the turn. Drive the advertised trigger from this conversation's
           // own measured input instead, whenever the next turn would no longer fit.
-          const conversationIds = [
-            sessionIdHeaderFromRequest(req.headers),
-            req.headers.get("thread-id"),
-            req.headers.get("x-codex-parent-thread-id"),
-          ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+          const conversationIds = conversationIdCandidatesFromRequest(req.headers);
           // A conversation whose turns all died at the wall has no successful row left to read a
           // measurement from, so the trigger would stay at the 70% default while the provider kept
           // refusing. The refusal itself is the measurement: it says the last successful input is

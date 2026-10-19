@@ -209,6 +209,59 @@ export function isContextOverflowText(text: string): boolean {
   return CONTEXT_OVERFLOW_PATTERNS.some((pattern) => pattern.test(lower));
 }
 
+/**
+ * The ceiling a provider STATES when it refuses an over-full prompt.
+ *
+ * `isContextOverflowText` above only decides that the wall was hit; it does not say where the
+ * wall is, so every number the proxy keeps believing comes from the catalog — and the catalog is
+ * routinely wrong. Verified 2026-10-14 on workbuddy/global:deepseek-v4.1-flash, whose config
+ * declares a 1,000,000 window and whose catalog row advertises a 700,000 compaction trigger: a
+ * 313,021-token turn was answered normally, and the very next (compaction) turn was refused with
+ * "prompt is too long: 100001 tokens > 100000 maximum". The real ceiling for that request shape
+ * was 100,000, an order of magnitude below every number the proxy held, and the only place that
+ * number appeared was this message.
+ *
+ * The refusal is therefore the only trustworthy source, and it is a direct measurement: the
+ * provider has already counted the prompt against its own limit. Only the number AFTER the ">" is
+ * read — the count before it is the size of one oversized request, not a limit — and only from
+ * the "N tokens > M" comparison shape, so a bare number elsewhere in the body cannot be mistaken
+ * for a ceiling.
+ */
+const STATED_MAXIMUM_PATTERNS: readonly RegExp[] = [
+  // "prompt is too long: 100001 tokens > 100000 maximum" (workbuddy / prompt_too_long)
+  /\btokens?\s*>\s*([0-9][0-9,_]*)\s*(?:tokens?\s*)?(?:maximum|max\b|limit\b)/i,
+  // "…1049108 tokens > 1048576 tokens" — same comparison, no bound word after it.
+  /\btokens?\s*>\s*([0-9][0-9,_]*)\s*tokens?\b/i,
+];
+
+/**
+ * A stated maximum below this is not a context window and is ignored rather than adopted.
+ *
+ * Every real window is measured in thousands; a match this small can only come from a body that
+ * happens to contain a "tokens > N" comparison about something else. The floor is deliberately
+ * far below the smallest shipped window so it never suppresses a genuine observation, and it
+ * matters because an adopted ceiling is a REFUSAL threshold: a garbage 5 would refuse every turn.
+ */
+const MIN_PLAUSIBLE_CONTEXT_MAXIMUM = 1_024;
+
+/**
+ * Parse the maximum a provider stated when it rejected a prompt for being too long.
+ *
+ * Returns undefined when the text carries no such comparison, so a caller can fall back to the
+ * catalog exactly as before. Pure; safe on any text.
+ */
+export function parseStatedContextMaximum(text: string): number | undefined {
+  if (!text) return undefined;
+  for (const pattern of STATED_MAXIMUM_PATTERNS) {
+    const match = pattern.exec(text);
+    if (!match?.[1]) continue;
+    const value = Number(match[1].replaceAll(/[,_]/g, ""));
+    if (!Number.isSafeInteger(value) || value < MIN_PLAUSIBLE_CONTEXT_MAXIMUM) continue;
+    return value;
+  }
+  return undefined;
+}
+
 export function classifyError(status: number, type: string, message: string): OcxErrorPayload {
   const text = message.toLowerCase();
   if (type === "previous_response_not_found") {

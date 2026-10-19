@@ -33,6 +33,7 @@ import upstreamModelsSnapshot from "../data/upstream-models.json";
 
 import { NATIVE_OPENAI_CONTEXT_OVERRIDES, SUPPORTED_NATIVE_OPENAI_SLUGS, UPSTREAM_NATIVE_ENTRIES, hasNativeOpenAiCapabilityMetadata, nativeMultiAgentVersion, nativeOpenAiAutoCompactTokenLimit, nativeOpenAiContextWindow, nativeOpenAiMaxInputTokens, type NativeContextLimitsInput } from "./metadata";
 import { clampAutoCompactTokenLimit, measuredAutoCompactTokenLimit } from "../../providers/auto-compact-budget";
+import { observedContextCeilingForSlug } from "../../providers/observed-context-ceiling";
 import { trustedAccountBoundNativeCatalogSlug } from "./account-models";
 import { CODEX_NATIVE_ALIAS_CATALOG_KIND } from "./kinds";
 import { NATIVE_GPT6_ASTRA_MODEL } from "./native-models";
@@ -485,11 +486,20 @@ export function applyMeasuredAutoCompactTrigger(
   if (!measured) return entries;
   const slug = routedSlug(measured.provider, measured.model);
   for (const entry of entries) {
-    if (typeof entry.slug !== "string" || !slugsEquivalent(entry.slug, slug)) continue;
-    const ceiling = Math.max(
+    if (typeof entry.slug !== "string") continue;
+    if (!slugsEquivalent(entry.slug, slug)) continue;
+    const advertised = Math.max(
       typeof entry.context_window === "number" ? entry.context_window : 0,
       typeof entry.max_context_window === "number" ? entry.max_context_window : 0,
     );
+    // The ceiling a provider STATED when it refused a prompt outranks the advertised window: the
+    // row can claim 1,000,000 while the upstream enforces 100,000 (measured 2026-10-14 on
+    // workbuddy/global:deepseek-v4.1-flash), and a trigger derived from the catalog number never
+    // fires before the provider refuses. Applied to the measured ceiling too, so a "the last turn
+    // succeeded with N tokens" verdict cannot advertise more than the provider has enforced.
+    const observed = observedContextCeilingForSlug(entry.slug);
+    const ceiling = observed === undefined ? advertised : Math.min(advertised, observed);
+    if (ceiling <= 0) continue;
     const measuredFits = Number.isSafeInteger(measured.inputTokens) && measured.inputTokens > 0;
     const limit = measured.overflowed === true && measuredFits
       ? measured.inputTokens
@@ -500,7 +510,39 @@ export function applyMeasuredAutoCompactTrigger(
       && entry.auto_compact_token_limit > 0
       ? entry.auto_compact_token_limit
       : undefined;
-    entry.auto_compact_token_limit = existing === undefined ? limit : Math.min(existing, limit);
+    // The observed ceiling bounds the trigger even when no measurement moved it: the row's 70%
+    // envelope is read off the window the catalog advertised, which is exactly the number that
+    // was wrong.
+    const observedTrigger = observed === undefined ? undefined : clampAutoCompactTokenLimit(observed);
+    const candidates = [existing, limit, observedTrigger]
+      .filter((value): value is number => value !== undefined);
+    entry.auto_compact_token_limit = Math.min(...candidates);
+  }
+  return entries;
+}
+
+/**
+ * Lower every routed row's advertised trigger to the ceiling its provider has enforced.
+ *
+ * Separate from `applyMeasuredAutoCompactTrigger` because it needs no conversation at all: once a
+ * provider has stated its maximum, that number applies to every future catalog fetch for the
+ * model, whether or not the client has ever reported a measurement. Lower-is-policy still holds —
+ * a threshold configuration or a narrower catalog row keeps its own smaller number.
+ */
+export function applyObservedAutoCompactTrigger(entries: RawEntry[]): RawEntry[] {
+  for (const entry of entries) {
+    if (typeof entry.slug !== "string") continue;
+    const observed = observedContextCeilingForSlug(entry.slug);
+    if (observed === undefined) continue;
+    const observedTrigger = clampAutoCompactTokenLimit(observed);
+    const existing = typeof entry.auto_compact_token_limit === "number"
+      && Number.isSafeInteger(entry.auto_compact_token_limit)
+      && entry.auto_compact_token_limit > 0
+      ? entry.auto_compact_token_limit
+      : undefined;
+    entry.auto_compact_token_limit = existing === undefined
+      ? observedTrigger
+      : Math.min(existing, observedTrigger);
   }
   return entries;
 }

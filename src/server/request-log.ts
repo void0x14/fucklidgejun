@@ -10,6 +10,7 @@ import {
   isCyberPolicyCode,
   isCyberPolicyMessage,
   isRateLimitOrQuotaFailureMessage,
+  parseStatedContextMaximum,
   upstreamErrorMessageFromPayload,
 } from "../lib/errors";
 import { CODEX_CONFIG_PATH, readRootTomlString } from "../codex/paths";
@@ -57,11 +58,12 @@ import {
   USAGE_DEBUG_BODY_SAMPLE_BYTES,
   type UsageDebugBodyKind,
 } from "../usage/debug";
-import { matchesLogConversationId } from "./request-log-conversation";
+import { matchesLogConversationId, normalizeLogConversationId } from "./request-log-conversation";
 import { enforceAppOwnedMemoryBudget, type RetainedStoreSnapshot } from "../lib/app-owned-memory";
 import { capEstimateAtContextWindow } from "../lib/token-estimate";
 import { inferCursorContextWindow } from "../adapters/cursor/discovery";
 import { KIRO_MODEL_CONTEXT_WINDOWS, normalizeKiroModelId } from "../providers/kiro-models";
+import { recordObservedContextCeiling } from "../providers/observed-context-ceiling";
 import { DEVIN_MODEL_CONTEXT_WINDOWS } from "../adapters/devin/live-models";
 import { modelRecordValue } from "../reasoning-effort";
 
@@ -1234,6 +1236,11 @@ export function addFinalRequestLog(
   const closeReason = effectiveStatus === 499
     ? "client_cancel"
     : meta?.closeReason;
+  // Learn the model's REAL ceiling from a refusal that states one. This is the same terminal that
+  // stamps `upstreamError` onto the row, so the message and the routed identity are both still in
+  // hand — and the observation has to happen before the next turn is admitted, not on the next
+  // catalog sync.
+  recordStatedCeilingFromFailure(logCtx, effectiveStatus, errorCode, meta?.terminalStatus);
   if (logCtx.activeAttempt) {
     finishRequestAttempt(
       logCtx.activeAttempt,
@@ -1716,6 +1723,117 @@ function isContextOverflowRow(entry: RequestLogEntry): boolean {
 }
 
 /**
+ * Adopt the maximum a provider stated when it refused this turn's prompt.
+ *
+ * The catalog and `modelContextWindows` are declarations; a refusal is a measurement, and it is
+ * the only place the real number ever appears. Verified 2026-10-14 on
+ * workbuddy/global:deepseek-v4.1-flash: config declared 1,000,000 and the catalog advertised a
+ * 700,000 trigger while the provider enforced 100,000 — "prompt is too long: 100001 tokens >
+ * 100000 maximum" — so admission kept admitting and the trigger never fired before the wall.
+ *
+ * Same failed-row rule as `isContextOverflowRow`: a success row can carry a stray `upstreamError`
+ * scraped from a partial stream chunk, and that must not narrow anything. Recording is not an
+ * enforcement action — the refused turn already ended; only the numbers the NEXT turn is judged by
+ * change.
+ */
+function recordStatedCeilingFromFailure(
+  logCtx: RequestLogContext,
+  status: number,
+  errorCode: string | undefined,
+  terminalStatus: RequestLogEntry["terminalStatus"],
+): void {
+  const failed = status >= 400
+    || (terminalStatus !== undefined && terminalStatus !== "completed");
+  if (!failed) return;
+  const text = `${errorCode ?? ""} ${logCtx.upstreamError ?? ""}`;
+  if (!isContextOverflowText(text)) return;
+  const ceiling = parseStatedContextMaximum(text);
+  if (ceiling === undefined) return;
+  recordObservedContextCeiling({ provider: logCtx.provider, model: logCtx.model, ceiling });
+}
+
+/**
+ * A conversation this proxy itself measured as too large for its model.
+ *
+ * `model` and `provider` are the ROUTED identity, stored verbatim: the catalog trigger matches
+ * them against entry slugs, so they have to stay byte-exact. Both come from route resolution
+ * rather than from client text, which is why they are not passed through the log sanitizer — a
+ * truncated or control-stripped model id would silently stop matching its own catalog row.
+ */
+interface ConversationOversizeRecord {
+  estimatedTokens: number;
+  ceiling: number;
+  model: string;
+  provider: string;
+}
+
+/**
+ * Oversize verdicts decided locally, keyed by the conversation's persisted digest.
+ *
+ * The overflow row path needs a provider that names the wall. A conversation that only ever gets
+ * 5xx, timeouts or dropped streams never produces one, even when the body the proxy just received
+ * was larger than the model's ceiling — the proxy can see that itself, from the request it was
+ * about to dispatch, and waiting for a provider verdict that will never come leaves the
+ * auto-compact trigger at its default while every turn keeps failing.
+ *
+ * Process lifetime, bounded like every other map keyed by a client-controlled identity: the ring
+ * buffer it complements is capped at MAX_LOG_SIZE and an unbounded map here would be a leak.
+ */
+const conversationOversize = new Map<string, ConversationOversizeRecord>();
+const MAX_CONVERSATION_OVERSIZE = 1024;
+
+/**
+ * Record that this conversation's request body exceeded the model's input ceiling.
+ *
+ * Decided from the request the proxy itself received: no provider error code, no client report
+ * and no provider-side count is trusted or required. The verdict is strict — the estimate has to
+ * EXCEED the ceiling — and it is deliberately not the admission gate's threshold: that gate
+ * refuses at `ceiling * ADMISSION_TOLERANCE`, which is a refusal budget, not a measurement of
+ * what fits. A record is never an enforcement action; the turn it was measured on is dispatched
+ * unchanged, and only the next catalog fetch reads it.
+ *
+ * `conversationIds` are the RAW client ids off the request (the candidates
+ * `conversationIdCandidatesFromRequest` returns). They are hashed on the way in, because a
+ * session id can be user-derived and process state is not the place to keep it in the clear; a
+ * lookup may pass either form, since `matchesLogConversationId` hashes the query.
+ */
+export function recordConversationOversize(input: {
+  conversationIds: readonly string[];
+  estimatedTokens: number;
+  ceiling: number;
+  model: string;
+  provider: string;
+}): void {
+  if (!Number.isFinite(input.estimatedTokens) || !Number.isFinite(input.ceiling)) return;
+  if (!(input.estimatedTokens > input.ceiling)) return;
+  if (typeof input.model !== "string" || !input.model || typeof input.provider !== "string" || !input.provider) {
+    return;
+  }
+  const record: ConversationOversizeRecord = {
+    estimatedTokens: input.estimatedTokens,
+    ceiling: input.ceiling,
+    model: input.model,
+    provider: input.provider,
+  };
+  // Digest form, so a lookup works whether the caller has the raw header value or the id /api/logs
+  // shows. `matchesLogConversationId` accepts both directions, so either form round-trips.
+  for (const candidate of input.conversationIds) {
+    const key = normalizeLogConversationId(candidate);
+    if (key === undefined) continue;
+    if (!conversationOversize.has(key) && conversationOversize.size >= MAX_CONVERSATION_OVERSIZE) {
+      const oldest = conversationOversize.keys().next();
+      if (!oldest.done) conversationOversize.delete(oldest.value);
+    }
+    conversationOversize.set(key, record);
+  }
+}
+
+/** Test-only process-state reset for the locally decided oversize verdicts. */
+export function clearConversationOversizeForTests(): void {
+  conversationOversize.clear();
+}
+
+/**
  * The conversation's newest context-overflow failure, if any.
  *
  * `measuredConversationInput` reads the newest row that REPORTED usage, so a conversation whose
@@ -1724,13 +1842,25 @@ function isContextOverflowRow(entry: RequestLogEntry): boolean {
  * the last success, then every turn failed with `prompt_too_long` — the failures are the evidence
  * that 321,539 is already at the ceiling, and they are the newest thing the conversation has.
  *
+ * Two independent sources answer the same question, and both count exactly alike:
+ *   - `recordConversationOversize`, the verdict this proxy reached from the request body it
+ *     received. Checked first because it describes the turn being dispatched, so it is newer than
+ *     anything already in the ring — and it is the ONLY source for a conversation whose failures
+ *     were 5xx rather than an overflow code.
+ *   - the newest overflow row, for a provider that named the wall itself.
+ *
  * `inputTokens` is the row's own reported usage when the provider counted it on the error, else 0;
- * the trigger's input still comes from the last successful row, which is a real measurement.
+ * a local verdict always reports 0, because an estimate is not a measurement and the trigger's
+ * input still has to come from the last successful row.
  */
 export function conversationOverflowedInput(
   candidates: readonly string[],
 ): { inputTokens: number; model: string; provider: string } | undefined {
   if (candidates.length === 0) return undefined;
+  for (const [key, record] of conversationOversize) {
+    if (!candidates.some(candidate => matchesLogConversationId(key, candidate))) continue;
+    return { inputTokens: 0, model: record.model, provider: record.provider };
+  }
   for (let index = requestLog.length - 1; index >= 0; index--) {
     const entry = requestLog[index];
     if (!entry) continue;
@@ -1755,4 +1885,5 @@ export function clearRequestLogsForTests(): void {
   requestLog.length = 0;
   requestLogBytes = 0;
   requestLogsHydratedFromDisk = false;
+  conversationOversize.clear();
 }

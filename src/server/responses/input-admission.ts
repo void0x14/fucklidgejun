@@ -12,6 +12,7 @@
  */
 import { nativeOpenAiContextWindow, nativeOpenAiMaxInputTokens, type NativeContextLimitsInput } from "../../codex/catalog/metadata";
 import { estimateTokens } from "../../lib/token-estimate";
+import { narrowCeilingToObserved } from "../../providers/observed-context-ceiling";
 import { isCanonicalOpenAiForwardProvider, OPENAI_CODEX_PROVIDER_ID } from "../../providers/openai-tiers";
 import { modelRecordValue } from "../../reasoning-effort";
 import type { OcxContentPart, OcxParsedRequest, OcxProviderConfig } from "../../types";
@@ -172,7 +173,33 @@ export function resolveInputCeiling(
   // modelMaxInputTokens is an input-only cap, so it can only tighten the window.
   const configuredMaxInput = positive(modelRecordValue(provider.modelMaxInputTokens, modelId));
   const limits = [window, configuredMaxInput, nativeMaxInput].filter((v): v is number => v !== null);
-  return limits.length === 0 ? null : Math.min(...limits);
+  const resolved = limits.length === 0 ? null : Math.min(...limits);
+  // Last, because it is the only ceiling that was MEASURED rather than declared: the provider
+  // refused a prompt and stated the maximum it enforces. It narrows the resolved ceiling and can
+  // never raise it — see src/providers/observed-context-ceiling.ts for why the catalog is not
+  // trusted here.
+  return narrowCeilingToObserved(resolved, providerName, modelId);
+}
+
+/**
+ * The gate's own two numbers, without the gate's verdict.
+ *
+ * The admission gate refuses at `ceiling * ADMISSION_TOLERANCE`; a caller that needs a different
+ * threshold on the same quantity (the dispatch path records a conversation as oversized at the
+ * raw ceiling, because that is the point where the next turn provably cannot fit) must apply it
+ * to THIS pair. Deriving the estimate or the ceiling a second time would let the two disagree,
+ * and the one that disagreed would be the one deciding when the client compacts.
+ */
+export function inputSizeAgainstCeiling(
+  parsed: OcxParsedRequest,
+  provider: OcxProviderConfig,
+  providerName: string,
+  modelId: string,
+  nativeContextCap?: NativeContextLimitsInput,
+): { estimatedTokens: number; ceiling: number | null } {
+  const ceiling = resolveInputCeiling(provider, providerName, modelId, nativeContextCap);
+  if (ceiling === null) return { estimatedTokens: 0, ceiling: null };
+  return { estimatedTokens: estimateInputTokens(parsed, modelId), ceiling };
 }
 
 /**
@@ -187,8 +214,13 @@ export function checkInputAdmission(
   modelId: string,
   nativeContextCap?: NativeContextLimitsInput,
 ): InputAdmissionResult {
-  const ceiling = resolveInputCeiling(provider, providerName, modelId, nativeContextCap);
+  const { estimatedTokens, ceiling } = inputSizeAgainstCeiling(
+    parsed,
+    provider,
+    providerName,
+    modelId,
+    nativeContextCap,
+  );
   if (ceiling === null) return { admitted: true, estimatedTokens: 0, ceiling: null };
-  const estimatedTokens = estimateInputTokens(parsed, modelId);
   return { admitted: estimatedTokens <= ceiling * ADMISSION_TOLERANCE, estimatedTokens, ceiling };
 }

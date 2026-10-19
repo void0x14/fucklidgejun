@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { classifyError, isContextOverflowText } from "../../src/lib/errors";
+import { classifyError, isContextOverflowText, parseStatedContextMaximum } from "../../src/lib/errors";
 import { humanizeProviderErrorResponse, providerFailureMessage } from "../../src/providers/failure-guidance";
 
 /** The body workbuddy/global:deepseek-v4.1-flash returned on 2026-10-14, verbatim shape. */
@@ -62,5 +62,62 @@ describe("context overflow classification", () => {
     ));
     const body = await response.json() as { error: { code?: string } };
     expect(body.error.code).toBe("invalid_param");
+  });
+});
+
+/**
+ * The ceiling a provider states is the only trustworthy one. Config declared 1,000,000 for
+ * workbuddy/global:deepseek-v4.1-flash and the catalog advertised a 700,000 trigger, while a
+ * 313,021-token turn was answered normally and the compaction turn was then refused at 100,000.
+ */
+describe("stated context maximum", () => {
+  test("reads the maximum after the comparison, never the prompt size before it", () => {
+    // Production shapes, verbatim.
+    expect(parseStatedContextMaximum("prompt is too long: 100001 tokens > 100000 maximum"))
+      .toBe(100_000);
+    expect(parseStatedContextMaximum("prompt is too long: 1049108 tokens > 1048576 maximum"))
+      .toBe(1_048_576);
+    // The number BEFORE the ">" is the oversized prompt, so reading it would reproduce the bug.
+    expect(parseStatedContextMaximum("prompt is too long: 1049108 tokens > 1048576 maximum"))
+      .not.toBe(1_049_108);
+  });
+
+  test("reads the vendor body workbuddy actually returned", () => {
+    expect(parseStatedContextMaximum(WORKBUDDY_OVERFLOW_BODY)).toBe(1_048_576);
+  });
+
+  test("tolerates the comparison without a trailing bound word", () => {
+    expect(parseStatedContextMaximum("prompt is too long: 210000 tokens > 200000 tokens"))
+      .toBe(200_000);
+    expect(parseStatedContextMaximum("input is too long: 210000 tokens > 200000 maximum"))
+      .toBe(200_000);
+  });
+
+  test("states nothing when the text carries no such comparison", () => {
+    for (const body of [
+      "prompt_too_long",
+      "request context exceeds the model's limit",
+      "Input exceeds the maximum length of 128000 tokens",
+      "Description is too long (2000 characters). Maximum is 1024 characters.",
+      "",
+    ]) expect(parseStatedContextMaximum(body)).toBeUndefined();
+  });
+
+  test("refuses an implausible maximum rather than adopting a refusal threshold of 5", () => {
+    // A body that happens to contain a tiny "tokens > N" comparison is not a context window; an
+    // adopted ceiling is a refusal threshold, so a garbage value would refuse every turn.
+    expect(parseStatedContextMaximum("tokens > 5 maximum")).toBeUndefined();
+    expect(parseStatedContextMaximum("tokens > 0 maximum")).toBeUndefined();
+    expect(parseStatedContextMaximum("tokens > 1023 maximum")).toBeUndefined();
+    expect(parseStatedContextMaximum("tokens > 1024 maximum")).toBe(1_024);
+  });
+
+  test("the classification and the parse are independent: detection does not imply a number", () => {
+    expect(isContextOverflowText("prompt is too long: 100001 tokens > 100000 maximum")).toBe(true);
+    expect(parseStatedContextMaximum("prompt is too long: 100001 tokens > 100000 maximum"))
+      .toBe(100_000);
+    // Detected as an overflow, but no stated maximum to learn from.
+    expect(isContextOverflowText("context_length_exceeded")).toBe(true);
+    expect(parseStatedContextMaximum("context_length_exceeded")).toBeUndefined();
   });
 });

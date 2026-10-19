@@ -7,6 +7,7 @@ import {
   CODEX_PROVIDER_MODEL_CATALOG_KIND,
   applyMultiAgentMode,
   applyNativeOpenAiContextOverride,
+  applyObservedAutoCompactTrigger,
   catalogModelSlug,
   ensureStrictCatalogFields,
   isRoutedModelCompatibilityExcluded,
@@ -911,7 +912,11 @@ export function mergeCatalogEntriesFromObservedState({
     delete entry.opencodex_catalog_kind;
     entry.opencodex_catalog_kind = kind;
   }
-  return versionedEntries;
+  // Last pass, so no earlier branch can restore a trigger derived from a window the provider has
+  // already refused. Applied here rather than at a call site because this is the one choke point
+  // every consumer shares — the catalog fetch endpoint AND the on-disk sync the client reads — and
+  // a consumer that forgot it would keep advertising the catalog's optimistic number.
+  return applyObservedAutoCompactTrigger(versionedEntries);
 }
 
 /** Merge retained-sync rows using the process-observed Codex feature state. */

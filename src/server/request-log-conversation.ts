@@ -62,6 +62,22 @@ export function sessionIdHeaderFromRequest(headers: Headers): string | null {
 }
 
 /**
+ * Every raw identity one Responses turn can carry a conversation under.
+ *
+ * Two callers depend on this exact set and must never drift: the catalog path reads a
+ * conversation's measured input and its oversize verdict by these candidates, while the dispatch
+ * path records an oversize verdict under them. An id recorded under one form and looked up under
+ * another is a silent miss, so the list lives here instead of at either call site.
+ */
+export function conversationIdCandidatesFromRequest(headers: Headers): string[] {
+  return [
+    sessionIdHeaderFromRequest(headers),
+    headers.get("thread-id"),
+    headers.get("x-codex-parent-thread-id"),
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+}
+
+/**
  * Fixed-size logical turn lane (#820).
  *
  * A lane must be as SPECIFIC as the identity available. `codexPoolAffinityKey` used to be the
