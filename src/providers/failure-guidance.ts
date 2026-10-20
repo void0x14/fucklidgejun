@@ -60,7 +60,13 @@ export function providerFailureMessage(status: number, body: string): string {
   if (status === 404 || status === 405) return "Sağlayıcının API yolu bulunamadı. Ayarlar bölümündeki API adresini sağlayıcının verdiği adresle eşleştir.";
   if (status >= 500) return "Sağlayıcıya ulaşılamadı veya geçici sunucu hatası alındı. Biraz sonra yeniden gönder; sürerse bağlantını kontrol et.";
   if (status === 403) return "Sağlayıcı erişim izni vermedi. Hesap ve model erişimini kontrol et veya yetkili bir anahtar kullan.";
-  if (status === 400 || status === 422) return "İstek biçimi kabul edilmedi. Modeli canlı listeden seç; hata ayrıntısındaki desteklenmeyen alanı düzelt.";
+  if (status === 400 || status === 422) {
+    // Never replace the provider's own refusal with a generic sentence: the real message is the
+    // only thing that says which field it rejected. Fall back only when the body carried none.
+    const stated = errorFields(text).message;
+    if (typeof stated === "string" && stated.trim().length > 0) return stated.trim().slice(0, 400);
+    return "İstek biçimi kabul edilmedi. Modeli canlı listeden seç; hata ayrıntısındaki desteklenmeyen alanı düzelt.";
+  }
   return "İstek tamamlanamadı. Hata ayrıntısındaki durum kodunu kontrol ederek sağlayıcı adresini ve model seçimini düzelt.";
 }
 

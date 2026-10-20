@@ -268,7 +268,11 @@ export function decodeRequestBody(
   // `maxOutputLength` makes zlib abort DURING inflation (ERR_BUFFER_TOO_LARGE), so a
   // decompression bomb never allocates beyond the cap — checking after the fact would
   // already have paid the full allocation (review finding, PR #96).
-  const opts = { maxOutputLength: maxBytes };
+  // Node rejects a maxOutputLength above 4 GiB with a RangeError, which would fail every
+  // compressed body instead of bounding it. The logical ceiling stays maxBytes; only the zlib
+  // hint is clamped.
+  const ZLIB_MAX_OUTPUT_LENGTH = 4_294_967_296;
+  const opts = { maxOutputLength: Math.min(maxBytes, ZLIB_MAX_OUTPUT_LENGTH) };
   let decoded: Uint8Array;
   try {
     if (encoding === "zstd") decoded = zstdDecompressSync(compressed, opts);

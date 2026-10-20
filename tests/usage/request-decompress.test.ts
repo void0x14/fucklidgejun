@@ -1,5 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { deflateRawSync, deflateSync } from "node:zlib";
+import { deflateRawSync, deflateSync, gzipSync } from "node:zlib";
 import { createTranslatorBudget } from "../../src/lib/translator-budget";
 import {
   DecompressedBodyTooLargeError,
@@ -622,5 +622,16 @@ describe("readJsonRequestBody", () => {
       body: Bun.zstdCompressSync(new TextEncoder().encode("{\"model\":")),
     });
     await expect(readJsonRequestBody(req)).rejects.toBeInstanceOf(SyntaxError);
+  });
+});
+
+describe("zlib maxOutputLength clamp", () => {
+  test("a ceiling above the zlib maximum still decodes instead of raising RangeError", () => {
+    // Regression: MAX_DECOMPRESSED_BODY_BYTES became the machine capacity (~1.02 TB), and Node
+    // rejects maxOutputLength > 4 GiB, so every compressed body failed to decode and surfaced as
+    // "Invalid JSON body" for every client that sends content-encoding: zstd.
+    const raw = gzipSync(new TextEncoder().encode("{\"model\":\"m\"}"));
+    const decoded = decodeRequestBody(raw, "gzip", 1_116_691_496_960);
+    expect(new TextDecoder().decode(decoded)).toBe("{\"model\":\"m\"}");
   });
 });
