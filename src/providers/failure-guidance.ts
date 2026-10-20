@@ -1,6 +1,12 @@
 import { readBoundedResponseBody } from "../lib/bounded-body";
 import { redactSecretString } from "../lib/redact";
-import { isContextOverflowText, isCyberPolicyCode, isCyberPolicyMessage } from "../lib/errors";
+import {
+  isContextOverflowText,
+  isCyberPolicyCode,
+  isCyberPolicyMessage,
+  parseStatedContextMaximum,
+} from "../lib/errors";
+import { recordObservedContextCeiling } from "./observed-context-ceiling";
 import { classifyKeyScopedFailure } from "./key-failure-class";
 
 function errorFields(body: string): { message: string; code?: string | number | null; type?: string; param?: string | null } {
@@ -58,14 +64,50 @@ export function providerFailureMessage(status: number, body: string): string {
   return "İstek tamamlanamadı. Hata ayrıntısındaki durum kodunu kontrol ederek sağlayıcı adresini ve model seçimini düzelt.";
 }
 
+/** The routed identity of the turn whose failure response is being described. */
+export interface ProviderErrorIdentity {
+  provider: string;
+  model: string;
+}
+
+/**
+ * Learn the ceiling the provider enforced from the refusal itself, while the number still exists.
+ *
+ * `recordStatedCeilingFromFailure` (src/server/request-log.ts) reads the log row, and by the time
+ * that row exists this function has already replaced the body: `upstreamError` then holds
+ * "Upstreamin kabul ettiği context window doldu, compaction yapınız." and the raw
+ * "prompt is too long: 100001 tokens > 100000 maximum" is gone, so `parseStatedContextMaximum`
+ * finds nothing and the catalog keeps advertising a window the provider already closed. The
+ * refusal is a direct measurement, and this is the last point at which it is still readable.
+ *
+ * Same acceptance rule as the request-log fallback: the body must describe a window overflow AND
+ * state a plausible maximum. A failure response is already a failure by construction here (the
+ * status guard above), so only the text needs checking.
+ */
+function recordStatedCeilingFromRawRefusal(
+  identity: ProviderErrorIdentity | undefined,
+  text: string,
+): void {
+  if (identity === undefined || !text) return;
+  if (!isContextOverflowText(text)) return;
+  const ceiling = parseStatedContextMaximum(text);
+  if (ceiling === undefined) return;
+  recordObservedContextCeiling({ provider: identity.provider, model: identity.model, ceiling });
+}
+
 /** Yalnızca son hata yanıtına uygulanır; combo kararları özgün sağlayıcı hatasını görür. */
-export async function humanizeProviderErrorResponse(response: Response): Promise<Response> {
+export async function humanizeProviderErrorResponse(
+  response: Response,
+  identity?: ProviderErrorIdentity,
+): Promise<Response> {
   if (response.status < 400 || response.status === 499) return response;
   let text = "";
   try {
     const body = await readBoundedResponseBody(response, { maxBytes: 16_384, totalTimeoutMs: 2_000 });
     if (body.displaySafe && !body.truncated) text = body.text;
   } catch { /* Yanıtsız veya bozuk hata gövdesinde durum koduyla açıklama yapılır. */ }
+  // Before the body below is rebuilt: the refusal is the only trustworthy source for the ceiling.
+  recordStatedCeilingFromRawRefusal(identity, text);
   const fields = errorFields(text);
   // A window overflow is the one shape a Codex client can act on: it classifies
   // `context_length_exceeded` as its own context-window failure and runs its compaction

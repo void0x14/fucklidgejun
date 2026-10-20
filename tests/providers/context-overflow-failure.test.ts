@@ -1,6 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { classifyError, isContextOverflowText, parseStatedContextMaximum } from "../../src/lib/errors";
 import { humanizeProviderErrorResponse, providerFailureMessage } from "../../src/providers/failure-guidance";
+import {
+  clearObservedContextCeilingsForTests,
+  observedContextCeiling,
+} from "../../src/providers/observed-context-ceiling";
 
 /** The body workbuddy/global:deepseek-v4.1-flash returned on 2026-10-14, verbatim shape. */
 const WORKBUDDY_OVERFLOW_BODY = JSON.stringify({
@@ -119,5 +123,75 @@ describe("stated context maximum", () => {
     // Detected as an overflow, but no stated maximum to learn from.
     expect(isContextOverflowText("context_length_exceeded")).toBe(true);
     expect(parseStatedContextMaximum("context_length_exceeded")).toBeUndefined();
+  });
+});
+
+/**
+ * The refusal is the only trustworthy ceiling, and it survives exactly as long as the raw body
+ * does. Humanizing replaces that body with a Turkish sentence, so a recorder that reads the log
+ * row afterwards finds prose and no number — the live symptom: two real compaction failures on
+ * workbuddy/global:deepseek-v4.1-flash left the catalog advertising a 1,000,000 window and a
+ * 109,060 trigger while the provider was enforcing 100,000.
+ */
+describe("ceiling learned from the raw refusal", () => {
+  const PROVIDER = "workbuddy";
+  const MODEL = "global:deepseek-v4.1-flash";
+  const HUMANIZED = "Upstreamin kabul ettiği context window doldu, compaction yapınız.";
+  const REFUSAL = "prompt is too long: 100001 tokens > 100000 maximum";
+
+  afterEach(() => clearObservedContextCeilingsForTests());
+
+  test("records the stated maximum before the body is humanized", async () => {
+    const response = await humanizeProviderErrorResponse(new Response(
+      JSON.stringify({ error: { code: "prompt_too_long", message: REFUSAL } }),
+      { status: 400, headers: { "content-type": "application/json" } },
+    ), { provider: PROVIDER, model: MODEL });
+
+    expect(observedContextCeiling(PROVIDER, MODEL)).toBe(100_000);
+    // An observation names the model that produced it; its neighbours on the same provider
+    // learn nothing from it.
+    expect(observedContextCeiling(PROVIDER, "global:deepseek-v4.1-pro")).toBeUndefined();
+
+    // The wire is unchanged: same status, same remapped code, same sentence.
+    expect(response.status).toBe(400);
+    const body = await response.json() as {
+      error: { code?: string; type?: string; message?: string; details?: { status?: number; code?: string; message?: string } };
+    };
+    expect(body.error.code).toBe("context_length_exceeded");
+    expect(body.error.type).toBe("invalid_request_error");
+    expect(body.error.message).toBe(HUMANIZED);
+    expect(body.error.details?.status).toBe(400);
+    expect(body.error.details?.code).toBe("prompt_too_long");
+    expect(body.error.details?.message).toBe(REFUSAL);
+    // The humanized sentence itself carries no ceiling — which is why the recording cannot be
+    // deferred to the log row the sentence is written to.
+    expect(parseStatedContextMaximum(HUMANIZED)).toBeUndefined();
+  });
+
+  test("learns nothing without a routed identity to attribute the measurement to", async () => {
+    const response = await humanizeProviderErrorResponse(new Response(
+      JSON.stringify({ error: { code: "prompt_too_long", message: REFUSAL } }),
+      { status: 400, headers: { "content-type": "application/json" } },
+    ));
+    expect(response.status).toBe(400);
+    // Guessing a provider or model here would key a real measurement to a model that never made it.
+    expect(observedContextCeiling(PROVIDER, MODEL)).toBeUndefined();
+  });
+
+  test("an overflow that states no maximum records nothing", async () => {
+    await humanizeProviderErrorResponse(new Response(
+      JSON.stringify({ error: { code: "context_length_exceeded", message: "context_length_exceeded" } }),
+      { status: 400, headers: { "content-type": "application/json" } },
+    ), { provider: PROVIDER, model: MODEL });
+    expect(observedContextCeiling(PROVIDER, MODEL)).toBeUndefined();
+  });
+
+  test("a successful response is never read as a refusal", async () => {
+    const response = await humanizeProviderErrorResponse(new Response(
+      JSON.stringify({ error: { message: REFUSAL } }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ), { provider: PROVIDER, model: MODEL });
+    expect(response.status).toBe(200);
+    expect(observedContextCeiling(PROVIDER, MODEL)).toBeUndefined();
   });
 });

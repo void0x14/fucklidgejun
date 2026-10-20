@@ -61,7 +61,12 @@ export async function handleResponses(
       // in options and must not start a fresh allowance.
       sendBudget: options.sendBudget ?? createRequestExecutionBudget(),
     });
-    const delivered = options.comboAttempt ? response : await humanizeProviderErrorResponse(response);
+    // The routed identity travels with the response so the humanizer can learn the ceiling the
+    // provider stated while that raw text still exists; `logCtx` is already final here.
+    const delivered = options.comboAttempt ? response : await humanizeProviderErrorResponse(response, {
+      provider: logCtx.provider,
+      model: logCtx.model,
+    });
     return ownsBudget ? finalizeOwnedTranslatorBudget(delivered, translatorBudget) : delivered;
   } catch (error) {
     if (ownsBudget) translatorBudget.dispose();
