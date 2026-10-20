@@ -83,9 +83,9 @@ function trackedBodyStream(
 
 describe("DecompressedBodyTooLargeError", () => {
   test("preserves one- and two-argument constructors without guessing measurement provenance", async () => {
-    const legacy = new DecompressedBodyTooLargeError(268435457);
-    expect(legacy).toMatchObject({ bytes: 268435457, limit: 268435456, measurement: null });
-    await expectBodyLimitResponse(legacy, "Decompressed request body exceeds 268435456 bytes");
+    const legacy = new DecompressedBodyTooLargeError(MAX_DECOMPRESSED_BODY_BYTES + 1);
+    expect(legacy).toMatchObject({ bytes: MAX_DECOMPRESSED_BODY_BYTES + 1, limit: MAX_DECOMPRESSED_BODY_BYTES, measurement: null });
+    await expectBodyLimitResponse(legacy, `Decompressed request body exceeds ${MAX_DECOMPRESSED_BODY_BYTES} bytes`);
     const custom = new DecompressedBodyTooLargeError(6, 5);
     expect(custom).toMatchObject({ bytes: 6, limit: 5, measurement: null });
     await expectBodyLimitResponse(custom, "Decompressed request body exceeds 5 bytes");
@@ -119,15 +119,19 @@ describe("decodeRequestBody", () => {
   });
 
   test("allows identity bodies exactly at the shared byte cap", () => {
-    const exact = new Uint8Array(MAX_DECOMPRESSED_BODY_BYTES);
-    expect(decodeRequestBody(exact, "identity")).toBe(exact);
-    expect(decodeRequestBody(exact, null)).toBe(exact);
+    // The default cap is the machine's capacity, which cannot be allocated in a test, so the
+    // bounding logic is exercised through an explicit cap instead.
+    const cap = 1024;
+    const exact = new Uint8Array(cap);
+    expect(decodeRequestBody(exact, "identity", cap)).toBe(exact);
+    expect(decodeRequestBody(exact, null, cap)).toBe(exact);
   });
 
   test("rejects identity bodies over the shared byte cap", () => {
-    const over = new Uint8Array(MAX_DECOMPRESSED_BODY_BYTES + 1);
-    expect(() => decodeRequestBody(over, "identity")).toThrow(DecompressedBodyTooLargeError);
-    expect(() => decodeRequestBody(over, null)).toThrow(DecompressedBodyTooLargeError);
+    const cap = 1024;
+    const over = new Uint8Array(cap + 1);
+    expect(() => decodeRequestBody(over, "identity", cap)).toThrow(DecompressedBodyTooLargeError);
+    expect(() => decodeRequestBody(over, null, cap)).toThrow(DecompressedBodyTooLargeError);
   });
 
   test("round-trips zstd (the codex enable_request_compression encoding)", () => {
@@ -163,9 +167,10 @@ describe("decodeRequestBody", () => {
 
   test("caps decompressed size", () => {
     // A highly compressible body larger than the cap after inflation.
-    const big = new Uint8Array(MAX_DECOMPRESSED_BODY_BYTES + 1024);
+    const cap = 1024;
+    const big = new Uint8Array(cap + 1024);
     const compressed = Bun.zstdCompressSync(big);
-    expect(() => decodeRequestBody(compressed, "zstd")).toThrow(DecompressedBodyTooLargeError);
+    expect(() => decodeRequestBody(compressed, "zstd", cap)).toThrow(DecompressedBodyTooLargeError);
   });
 
   test("reports exact identity size at the decoder boundary", async () => {
@@ -232,10 +237,9 @@ describe("configurable inbound body limit (Issue #3573)", () => {
   });
 
   test("the opt-in raises the limit for the 922k-context case", () => {
-    // The value #3573 asked for: 512 MiB, which is also the ceiling.
+    // A configured value below the machine capacity is honoured exactly.
     expect(resolveInboundBodyLimitBytes(512 * 1024 * 1024)).toBe(512 * 1024 * 1024);
     expect(resolveInboundBodyLimitBytes(300 * 1024 * 1024)).toBe(300 * 1024 * 1024);
-    expect(resolveInboundBodyLimitBytes(300 * 1024 * 1024)).toBeGreaterThan(MAX_DECOMPRESSED_BODY_BYTES);
   });
 
   test("the ceiling is a hard bound, not a suggestion", () => {
@@ -243,12 +247,11 @@ describe("configurable inbound body limit (Issue #3573)", () => {
     // times over, so no configured value may exceed the ceiling.
     for (const requested of [
       MAX_CONFIGURABLE_INBOUND_BODY_BYTES + 1,
-      4 * 1024 * 1024 * 1024,
       Number.MAX_SAFE_INTEGER,
     ]) {
       expect(resolveInboundBodyLimitBytes(requested)).toBe(MAX_CONFIGURABLE_INBOUND_BODY_BYTES);
     }
-    expect(MAX_CONFIGURABLE_INBOUND_BODY_BYTES).toBe(512 * 1024 * 1024);
+    expect(MAX_CONFIGURABLE_INBOUND_BODY_BYTES).toBe(MAX_DECOMPRESSED_BODY_BYTES);
   });
 
   test("a floor keeps a fat-fingered small value from refusing ordinary turns", () => {
@@ -282,7 +285,7 @@ describe("configurable inbound body limit (Issue #3573)", () => {
     expect(payload.error.message).toContain("maxInboundBodyBytes");
     expect(payload.error.message).toContain("local proxy limit");
     expect(payload.error.message).toContain("300.0 MB");
-    expect(payload.error.message).toContain("256.0 MB");
+    expect(payload.error.message).toContain(`${(MAX_DECOMPRESSED_BODY_BYTES / (1024 * 1024)).toFixed(1)} MB`);
   });
 
   test("a lower-bound measurement is not reported as an exact size", () => {
@@ -402,17 +405,18 @@ describe("readJsonRequestBody", () => {
   });
 
   test("rejects and cancels declared over-cap bodies before reading", async () => {
+    const cap = 1024;
     const { body, stats } = trackedBodyStream([PAYLOAD_BYTES]);
     const req = new Request("http://localhost/v1/responses", {
       method: "POST",
-      headers: { "content-length": String(MAX_DECOMPRESSED_BODY_BYTES + 1) },
+      headers: { "content-length": String(cap + 1) },
       body,
     });
 
-    const error = await captureBodyTooLarge(() => readJsonRequestBody(req));
-    expect(error).toMatchObject({ bytes: 268435457, limit: 268435456, measurement: "declared_wire" });
+    const error = await captureBodyTooLarge(() => readJsonRequestBody(req, undefined, cap));
+    expect(error).toMatchObject({ bytes: cap + 1, limit: cap, measurement: "declared_wire" });
     await expectBodyLimitResponse(error,
-      "Decompressed request body exceeds 268435456 bytes [measurement=declared_wire; bytes=268435457]");
+      `Decompressed request body exceeds ${cap} bytes [measurement=declared_wire; bytes=${cap + 1}]`);
     expect(stats.pulls).toBe(0);
     expect(stats.cancelled).toBe(1);
   });
@@ -588,22 +592,24 @@ describe("readJsonRequestBody", () => {
   });
 
   test("surfaces DecompressedBodyTooLargeError (mapped to 413, not a generic 400) for oversized bodies", async () => {
-    const big = Bun.zstdCompressSync(new Uint8Array(MAX_DECOMPRESSED_BODY_BYTES + 1024));
+    const cap = 1024;
+    const big = Bun.zstdCompressSync(new Uint8Array(cap + 1024));
     const req = new Request("http://localhost/v1/responses", {
       method: "POST",
       headers: { "content-type": "application/json", "content-encoding": "zstd" },
       body: big,
     });
-    await expect(readJsonRequestBody(req)).rejects.toBeInstanceOf(DecompressedBodyTooLargeError);
+    await expect(readJsonRequestBody(req, undefined, cap)).rejects.toBeInstanceOf(DecompressedBodyTooLargeError);
   });
 
   test("surfaces DecompressedBodyTooLargeError for oversized identity bodies too", async () => {
+    const cap = 1024;
     const req = new Request("http://localhost/v1/responses", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: new Uint8Array(MAX_DECOMPRESSED_BODY_BYTES + 1),
+      body: new Uint8Array(cap + 1),
     });
-    await expect(readJsonRequestBody(req)).rejects.toBeInstanceOf(DecompressedBodyTooLargeError);
+    await expect(readJsonRequestBody(req, undefined, cap)).rejects.toBeInstanceOf(DecompressedBodyTooLargeError);
   });
 
   test("preserves SyntaxError for malformed identity JSON", async () => {
