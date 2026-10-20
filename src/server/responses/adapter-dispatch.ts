@@ -28,7 +28,6 @@ import {
   rateLimitRetryPolicyFor,
   hasKeyPoolFailover,
   rotateProviderTransportOn401,
-  rateLimitRetryDelayMs,
   rotateProviderTransportOnKeyFailure,
 } from "../../providers/key-failover";
 import { classifyKeyScopedResponse, keyScopedRecoveryKind } from "../../providers/key-failure-class";
@@ -38,9 +37,12 @@ import {
   fetchWithResetRetry,
   applyUpstreamRecoveryInit,
   SendBudgetExhaustedError,
-  prepareSameTarget429Wait,
   sleepWithAbort,
 } from "../../lib/upstream-retry";
+import {
+  raceSameTarget429,
+  type SameTarget429LegOutcome,
+} from "./same-target-429-race";
 import { describeUpstreamConnectFailure } from "./upstream-error";
 import type { OpaqueBlobRecoveryGuard } from "./core-opaque-recovery";
 import type { AttemptRecoveryKind } from "../../usage/log";
@@ -372,12 +374,14 @@ export async function prepareAdapterExchange(
     builtInitialRequest.releaseBodyObservation?.();
   }
 
-  // Same-target 429 retry budget is per REQUEST: it lives OUTSIDE the recovery loop (so a 413/401
-  // replay that comes back 429 cannot silently re-arm a fresh budget) and is SHARED with the
-  // terminal-guard continuation below, so the main loop + one continuation can never exceed
-  // `attempts` same-key replays in total (bounded per request).
+  // Same-target 429 handling is per REQUEST, not per loop iteration, so it lives OUTSIDE the
+  // recovery loop: a 413/401 replay that comes back 429 must not re-arm it. `rateLimitRetries`
+  // is still the counter the terminal-guard continuation shares, but this loop no longer spends
+  // it -- a 429 here is answered by the race below, which does not wait and is bounded on its
+  // own (1 initial + 6 + 6 racers, and never past what the request budget will fund).
   const rateLimitPolicy = rateLimitRetryPolicyFor(route.provider);
   let rateLimitRetries = 0;
+  let sameTarget429RaceAttempted = false;
   // Shared with the terminal-guard continuation below: an image-tier reduction that let the
   // main request clear a 413 must not be forgotten on the very next continuation build.
   if (!upstreamResponse.ok) {
@@ -544,6 +548,71 @@ export async function prepareAdapterExchange(
         return { failed: formatErrorResponse(502, "upstream_error", msg) };
       }
     };
+    /**
+     * One racer of the same-target 429 race: exactly ONE physical send of the SAME built
+     * request, admitted by the shared request budget and cancellable by the race.
+     *
+     * Deliberately not routed through `rebuildAndRefetch`: that leg owns the request's abort
+     * link and maps a cancelled send into a client-visible failure, which is the wrong answer
+     * for a leg the RACE cancelled. This one reports its own outcome instead, so a loser can be
+     * discarded without ending the turn.
+     */
+    const sendSameTarget429Racer = async (
+      signal: AbortSignal,
+    ): Promise<SameTarget429LegOutcome> => {
+      // The request budget outranks the fan-out: a leg it refuses ends the race with the real
+      // 429 already in hand. Charged through the same shared reporter every other replay leg
+      // uses, and charged BEFORE the send -- a rejected send still consumes budget, which is
+      // what keeps a reset storm from looping for free.
+      if (sendBudgetExhausted()) return { kind: "refused" };
+      const raceRequest = transportState.sameTargetRequest;
+      if (raceRequest === undefined) return { kind: "refused" };
+      noteTransientSends(1);
+      const activeAdapter = transportState.activeAdapter;
+      noteAttemptSend(logCtx.activeAttempt, inputTokenEstimate, "rate-limit-429");
+      try {
+        if (activeAdapter.fetchResponse) {
+          await waitForProviderRequestSlot(route.providerName, route.provider, route.modelId, signal);
+          return {
+            kind: "response",
+            response: await activeAdapter.fetchResponse(raceRequest, {
+              abortSignal: signal,
+              timeoutMs: connectMs,
+              sendBudget: adapterSendBudget,
+              onPhysicalSend: send => noteAdapterPhysicalSend(inputTokenEstimate, send),
+              stream: parsed.stream,
+              executor: providerFetch(route.provider, options.codexWsRuntimeIdentity, {
+                dispatchOverride: oauthDispatch(raceRequest),
+                providerName: route.providerName,
+                modelId: route.modelId,
+              }),
+            }),
+          };
+        }
+        // One send, no transient-5xx layer: a racer is one attempt, and a 5xx it returns is a
+        // non-429 answer that wins the race anyway.
+        return {
+          kind: "response",
+          response: await fetchWithResetRetry(
+            () => fetchWithHeaderTimeout(raceRequest.url, applyUpstreamRecoveryInit({
+              method: raceRequest.method,
+              headers: raceRequest.headers,
+              body: raceRequest.body,
+            }), signal, connectMs, parsed.stream,
+              providerFetch(route.provider, options.codexWsRuntimeIdentity, {
+                dispatchOverride: oauthDispatch(raceRequest),
+                providerName: route.providerName,
+                modelId: route.modelId,
+              })),
+            { abortSignal: signal, label: safeHostLabel(raceRequest.url) },
+          ),
+        };
+      } catch (err) {
+        if (err instanceof SendBudgetExhaustedError) return { kind: "refused" };
+        if (signal.aborted || options.abortSignal?.aborted) return { kind: "aborted" };
+        return { kind: "failed" };
+      }
+    };
     // Keep recovery kinds in sync with the native Responses `passthroughRecovery:` loop above.
     recovery: for (;;) {
       if (
@@ -637,45 +706,38 @@ export async function prepareAdapterExchange(
         upstreamResponse = result;
       }
 
-      // Same-target 429 wait-and-retry (opt-in `retryOn429`, issue #487). Codex never retries
-      // 429 itself (it retries 5xx only), and single-key pools cannot use the failover below,
-      // so wait (Retry-After or the fixed interval) and replay the IDENTICAL request on the
-      // same key first. Pre-stream only: a 429 arrives before any bytes are relayed, so the
-      // replay is lossless. Runs before key failover so "primary-first" setups keep the same
-      // key on rate-limit blips; only after the attempts are exhausted does failover run.
-      while (
-        upstreamResponse.status === 429
-        && rateLimitPolicy !== null
-        && ((route.provider.apiKeyPoolStrategy ?? "failover") !== "failover" || !hasKeyPoolFailover(route.provider))
-        && rateLimitRetries < rateLimitPolicy.attempts
-        && !sendBudgetExhausted()
-      ) {
-        rateLimitRetries += 1;
-        // Release unread body + deliberate wait via the shared same-target helper.
-        const retryAfterHeader = upstreamResponse.headers.get("retry-after");
-        try {
-          for await (const _ of prepareSameTarget429Wait({
-            body: upstreamResponse.body,
-            signal: options.abortSignal,
-            delayMs: rateLimitRetryDelayMs(rateLimitPolicy, retryAfterHeader, Date.now()),
-          })) {
-            // pre-stream: no stall watchdog to feed
-          }
-        } catch {
-          cleanupUpstreamAbort();
-          upstream.abort();
-          return clientCancelledResponse();
-        }
-        // Client cancellation wins over any stale timer edge: re-check before dispatching the
-        // replay so an adapter never starts work for a request the client already abandoned.
+      // Same-target 429 race. A 429 is a statement about a moment, not about the request, so
+      // the answer is not to wait out the provider's interval and not to hand the verdict to
+      // the client: fire several identical sends of the ONE built request at the SAME target
+      // and keep the first answer that is not a 429. No wait, no backoff, no key rotation, no
+      // provider change -- the racers replay the same-target request verbatim. Pre-stream only:
+      // a 429 arrives before any bytes are relayed, so every replay is lossless.
+      //
+      // This runs for EVERY provider. It used to be gated on `rateLimitPolicy !== null` and on
+      // the provider not using a key pool with the default failover strategy, which meant a
+      // pooled provider's 429 was returned to the client untouched while a single-key provider
+      // sat out a Retry-After. Runs before key failover so a "primary-first" setup still keeps
+      // the same key on a rate-limit blip; only a race that ends in 429 reaches the rotation
+      // arms below.
+      //
+      // Bounded per REQUEST: `sameTarget429RaceAttempted` lives outside the recovery loop, so a
+      // 401/413 replay that comes back 429 cannot re-arm a second race. The race itself caps
+      // the sends (1 initial + 6 + 6), and the request budget can stop it earlier.
+      if (upstreamResponse.status === 429 && !sameTarget429RaceAttempted) {
+        sameTarget429RaceAttempted = true;
+        const raced = await raceSameTarget429({
+          initial: upstreamResponse,
+          send: sendSameTarget429Racer,
+          signal: upstream.signal,
+        });
+        upstreamResponse = raced.response;
+        // Client cancellation wins over every race outcome: the legs were cancelled by the
+        // link, not by the race, so the turn ends here rather than with a stale 429.
         if (options.abortSignal?.aborted || upstream.signal.aborted) {
           cleanupUpstreamAbort();
           upstream.abort();
           return clientCancelledResponse();
         }
-        const result = await rebuildAndRefetch("rate-limit-429");
-        if ("failed" in result) return result.failed;
-        upstreamResponse = result;
       }
 
       // Multi-key 429 failover: rotate to the next pool key (cooldown-aware) and retry the

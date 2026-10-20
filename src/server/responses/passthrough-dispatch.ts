@@ -101,17 +101,18 @@ import {
   fetchWithTransientRetry,
   applyUpstreamRecoveryInit,
   TRANSIENT_RETRY_MAX_ATTEMPTS,
-  prepareSameTarget429Wait,
   sleepWithAbort,
 } from "../../lib/upstream-retry";
+import {
+  raceSameTarget429,
+  type SameTarget429LegOutcome,
+} from "./same-target-429-race";
 import { mapCodexAuthContextErrorToResponse } from "./codex-auth-error";
 import { classifyTransportFailureKind, transportErrorCode } from "../../lib/upstream-reachability";
 import { recordCodexUpstreamOutcome } from "../../codex/routing";
 import { describeUpstreamConnectFailure } from "./upstream-error";
 import type { OpaqueBlobRecoveryGuard } from "./core-opaque-recovery";
 import {
-  rateLimitRetryPolicyFor,
-  rateLimitRetryDelayMs,
   hasKeyPoolFailover,
   rotateProviderTransportOnKeyFailure,
 } from "../../providers/key-failover";
@@ -794,8 +795,9 @@ export async function preparePassthroughExchange(
     // Console Go answers a transient 400 "Invalid upload request." for bodies it accepts
     // moments later; at most one byte-identical replay is allowed per request.
     const consoleGoUploadRetryGuard: { attempted: boolean } = { attempted: false };
-    const rateLimitPolicy = rateLimitRetryPolicyFor(route.provider);
-    let rateLimitRetries = 0;
+    // One same-target 429 race per REQUEST, declared outside the loop below for the same reason
+    // the other guards are: a 401/413 replay that comes back 429 must not re-arm a second race.
+    let sameTarget429RaceAttempted = false;
     // API-key pool rotations for this request (see the key-pool arm in the loop below): at most
     // one per pool member, declared outside the loop so `continue passthroughRecovery` cannot
     // re-arm it.
@@ -886,6 +888,51 @@ export async function preparePassthroughExchange(
         // a reservation whose send never happened.
         allowance.permit?.release();
         request.releaseBodyObservation?.();
+      }
+    };
+    /**
+     * One racer of the same-target 429 race: exactly ONE physical send of the SAME built
+     * request, admitted by the shared request budget and cancellable by the race.
+     *
+     * It does not go through `rebuildAndRefetch`: that leg rebuilds (which would make six
+     * concurrent builders race over the shared `request` binding) and reserves through the
+     * transient-retry allowance, which funds up to three sends. A racer is one send of the
+     * request already built for this target, and its refusal has to be distinguishable from a
+     * transport failure so the race can stop rather than keep spending.
+     */
+    const sendSameTarget429Racer = async (
+      signal: AbortSignal,
+    ): Promise<SameTarget429LegOutcome> => {
+      // The request budget outranks the fan-out: a leg it refuses ends the race with the real
+      // 429 already in hand. Charged through the same shared reporter every other replay leg
+      // uses, and charged BEFORE the send -- a rejected send still consumes budget.
+      if (sendBudgetExhausted()) return { kind: "refused" };
+      const raceRequest = request;
+      noteTransientSends(1);
+      noteAttemptSend(logCtx.activeAttempt, passthroughEstimate, "rate-limit-429");
+      try {
+        return {
+          kind: "response",
+          response: await fetchWithHeaderTimeout(raceRequest.url, applyUpstreamRecoveryInit({
+            method: raceRequest.method,
+            headers: raceRequest.headers,
+            body: raceRequest.body,
+          }), signal, connectMs, parsed.stream,
+            providerFetch(route.provider, options.codexWsRuntimeIdentity, {
+              dispatchOverride: oauthDispatch(raceRequest),
+              providerName: route.providerName,
+              modelId: route.modelId,
+              onCodexWsQuota: codexWsQuotaObserver(admissionState.authCtx, route.provider, route.modelId),
+              beforeDispatch: isCanonicalOpenAiForwardProvider(route.provider)
+                ? createCodexReserveDispatchGuard(admissionState.authCtx, options.codexAuthPolicy ?? config, route.modelId, options.admission, options.visionDescribeTerminal === true) : undefined,
+            }),
+            route.provider.authMode === "forward")
+            .then(adoptObservedResponse),
+        };
+      } catch (err) {
+        if (err instanceof SendBudgetExhaustedError) return { kind: "refused" };
+        if (signal.aborted || options.abortSignal?.aborted) return { kind: "aborted" };
+        return { kind: "failed" };
       }
     };
 
@@ -1163,69 +1210,35 @@ export async function preparePassthroughExchange(
       }
     }
 
-    // Same-target 429 wait-and-retry (opt-in `retryOn429`) for key-auth providers on the
-    // passthrough wire. This branch returns before the recovery loop below, so Responses-shaped
-    // key-auth gateways (e.g. the built-in DeepSeek preset) would otherwise surface 429
-    // immediately with no same-key replay. Pre-stream only — nothing has been relayed yet, so
-    // the replay is lossless (same invariant as the recovery loop). Forward/OAuth providers
-    // keep their pool logic below (rateLimitRetryPolicyFor returns null for them).
-    while (
-      upstreamResponse.status === 429
-      && rateLimitPolicy !== null
-      && ((route.provider.apiKeyPoolStrategy ?? "failover") !== "failover" || !hasKeyPoolFailover(route.provider))
-      && rateLimitRetries < rateLimitPolicy.attempts
-      // Checked here rather than inside the helper: prepareSameTarget429Wait releases the 429
-      // body, so a refusal discovered after the wait can no longer return the real rate-limit
-      // answer and would surface a synthetic 502 instead.
-      && !sendBudgetExhausted()
-    ) {
-      rateLimitRetries += 1;
-      // Release unread body + deliberate wait via the shared same-target helper.
-      const retryAfterHeader = upstreamResponse.headers.get("retry-after");
-      try {
-        for await (const _ of prepareSameTarget429Wait({
-          body: upstreamResponse.body,
-          signal: options.abortSignal,
-          delayMs: rateLimitRetryDelayMs(rateLimitPolicy, retryAfterHeader, Date.now()),
-        })) {
-          // pre-stream: no stall watchdog to feed
-        }
-      } catch {
-        upstream.abort();
-        return clientCancelledResponse();
-      }
-      // Client cancellation wins over any stale timer edge: re-check before dispatching the
-      // replay so the wire never starts work for a request the client already abandoned.
+    // Same-target 429 race on the passthrough wire. A 429 is a statement about a moment, not
+    // about the request, so instead of waiting out the provider's interval -- or, for a key pool
+    // under the default failover strategy, skipping recovery entirely and handing the 429 to the
+    // client -- send the SAME built request several times concurrently and keep the first answer
+    // that is not a 429. No wait, no backoff, no key rotation, no provider change. Pre-stream
+    // only: nothing has been relayed yet, so every replay is lossless.
+    //
+    // Runs for EVERY provider. It used to be gated on `rateLimitPolicy !== null` plus "not a key
+    // pool with the default failover strategy", which is exactly how a Responses-shaped pooled
+    // gateway returned its 429 untouched. It still runs before the key-pool arm below, so a
+    // "primary-first" setup keeps its key on a rate-limit blip; only a race that ends in 429
+    // reaches the rotation arm.
+    //
+    // Bounded per REQUEST: the guard lives outside this loop, so a 401/413 replay that comes
+    // back 429 cannot re-arm a second race. The race caps the sends (1 initial + 6 + 6) and the
+    // request budget can stop it earlier.
+    if (upstreamResponse.status === 429 && !sameTarget429RaceAttempted) {
+      sameTarget429RaceAttempted = true;
+      const raced = await raceSameTarget429({
+        initial: upstreamResponse,
+        send: sendSameTarget429Racer,
+        signal: upstream.signal,
+      });
+      upstreamResponse = raced.response;
+      // Client cancellation wins over every race outcome: the legs were cancelled by the link,
+      // not by the race, so the turn ends here rather than with a stale 429.
       if (options.abortSignal?.aborted || upstream.signal.aborted) {
         upstream.abort();
         return clientCancelledResponse();
-      }
-      try {
-        upstreamResponse = await fetchWithTransientRetry(
-          recovery => {
-            // The first send of every replay is itself a rate-limit retry; inner transient-5xx
-            // recoveries keep their own label (recovery is provided for those).
-            noteAttemptSend(logCtx.activeAttempt, passthroughEstimate, recovery ?? "rate-limit-429");
-            return fetchWithHeaderTimeout(request.url, applyUpstreamRecoveryInit({
-              method: request.method,
-              headers: request.headers,
-              body: request.body,
-            }, recovery), upstream.signal, connectMs, parsed.stream,
-              providerFetch(route.provider, options.codexWsRuntimeIdentity, {
-              dispatchOverride: oauthDispatch(request),
-                providerName: route.providerName,
-                modelId: route.modelId,
-                onCodexWsQuota: codexWsQuotaObserver(admissionState.authCtx, route.provider, route.modelId),
-                beforeDispatch: isCanonicalOpenAiForwardProvider(route.provider)
-                  ? createCodexReserveDispatchGuard(admissionState.authCtx, options.codexAuthPolicy ?? config, route.modelId, options.admission, options.visionDescribeTerminal === true) : undefined,
-              }),
-              route.provider.authMode === "forward")
-              .then(adoptObservedResponse);
-          },
-          { abortSignal: upstream.signal, label: safeHostLabel(request.url), attempts: remainingTransientSendBudget(TRANSIENT_RETRY_MAX_ATTEMPTS), onSendsConsumed: noteTransientSends },
-        );
-      } catch (err) {
-        return transportFailureResponse(err);
       }
     }
 
@@ -1233,7 +1246,7 @@ export async function preparePassthroughExchange(
     // loop has had 401/429 key rotation for a long time; this wire had none, so a
     // Responses-shaped key-pool provider (DeepSeek's Responses preset, for one) relayed every
     // key-scoped verdict -- 402 "Insufficient Balance" included -- straight to the client and
-    // every "continue" went back to the same dead key. Runs after the opt-in same-key 429 replay
+    // every "continue" went back to the same dead key. Runs after the same-target 429 race
     // above, so "primary-first" setups keep their key on a rate-limit blip. Pre-stream only:
     // nothing has been relayed yet. OAuth/forward providers never qualify
     // (`hasKeyPoolFailover`), so the Codex pool and generic OAuth arms keep their ownership.

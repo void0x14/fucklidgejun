@@ -66,7 +66,15 @@ export function sameModelFallbackCandidates(
     if (name === selected.provider || provider.disabled === true) continue;
     const candidate = { provider: name, model: selected.model };
     if (tried.has(candidateKey(candidate))) continue;
-    if (!knownModelIdsForProvider(name, provider, config).includes(selected.model)) continue;
+    // The same model is often carried under a provider namespace ("global:deepseek-v4.1-flash"
+    // on one provider, plain "deepseek-v4.1-flash" on the next). An exact-id-only match found no
+    // sibling for the namespaced form, so a 429 or 503 on that provider ended the turn instead of
+    // moving to a provider that serves the same model.
+    const ids = knownModelIdsForProvider(name, provider, config);
+    const bare = selected.model.includes(":")
+      ? selected.model.slice(selected.model.indexOf(":") + 1)
+      : selected.model;
+    if (!ids.includes(selected.model) && !ids.includes(bare)) continue;
     candidates.push(candidate);
   }
   return candidates;

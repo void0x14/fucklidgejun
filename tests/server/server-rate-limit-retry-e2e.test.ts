@@ -118,7 +118,7 @@ describe("server same-target 429 retry (end-to-end)", () => {
     }
   });
 
-  test("without retryOn429 the 429 surfaces immediately with Retry-After", async () => {
+  test("without retryOn429 the 429 is raced and still surfaces with Retry-After", async () => {
     const originalFetch = globalThis.fetch;
     let sends = 0;
     globalThis.fetch = (async (input, init) => {
@@ -151,11 +151,14 @@ describe("server same-target 429 retry (end-to-end)", () => {
       saveConfig(config);
       server = startServer(0);
       const res = await postResponses(server.url, "blsc/DeepSeek-V4-Flash");
+      // The same-target 429 race runs for every provider, opt-in or not: the initial send plus
+      // three racers, which is where the request's send budget refuses the next leg. The real
+      // upstream 429 -- body and Retry-After included -- is what the client receives.
       expect(res.status).toBe(429);
       expect(res.headers.get("retry-after")).toBe("17");
       const json = await res.json() as { error?: { type?: string } };
       expect(json.error?.type).toBe("rate_limit_error");
-      expect(sends).toBe(1);
+      expect(sends).toBe(4);
     } finally {
       try {
         await server?.stop(true);
@@ -165,7 +168,7 @@ describe("server same-target 429 retry (end-to-end)", () => {
     }
   });
 
-  test("exhausted attempts surface the 429", async () => {
+  test("a 429 every racer repeats surfaces once the request budget stops the race", async () => {
     const originalFetch = globalThis.fetch;
     let sends = 0;
     globalThis.fetch = (async (input, init) => {
@@ -199,8 +202,10 @@ describe("server same-target 429 retry (end-to-end)", () => {
       saveConfig(config);
       server = startServer(0);
       const res = await postResponses(server.url, "blsc/DeepSeek-V4-Flash");
+      // `retryOn429.attempts` no longer bounds same-target 429 handling -- the race does, and
+      // the shared per-request send budget stops it before the wave is spent.
       expect(res.status).toBe(429);
-      expect(sends).toBe(2);
+      expect(sends).toBe(4);
     } finally {
       try {
         await server?.stop(true);
@@ -210,7 +215,7 @@ describe("server same-target 429 retry (end-to-end)", () => {
     }
   });
 
-  test("same-key retries run before multi-key failover, which still works after they exhaust", async () => {
+  test("same-target 429 racers run before multi-key failover, which still works after they exhaust", async () => {
     const originalFetch = globalThis.fetch;
     const seenAuth: string[] = [];
     globalThis.fetch = (async (input, init) => {
@@ -253,7 +258,12 @@ describe("server same-target 429 retry (end-to-end)", () => {
       server = startServer(0);
       const res = await postResponses(server.url, "blsc/DeepSeek-V4-Flash");
       expect(res.status).toBe(200);
+      // Initial send + three racers all stay on the same key (the race never rotates), and only
+      // the pool arm after them moves to the sibling key. A 2-key pool raises the request
+      // budget by one, which is the extra racer over the single-key case.
       expect(seenAuth).toEqual([
+        "Bearer key-alpha-000111222333",
+        "Bearer key-alpha-000111222333",
         "Bearer key-alpha-000111222333",
         "Bearer key-alpha-000111222333",
         "Bearer key-beta-444555666777",
@@ -333,8 +343,7 @@ describe("server same-target 429 retry (end-to-end)", () => {
     }
   });
 
-  test("retry budget stays per request across multi-key failover (never re-arms)", async () => {
-    const originalFetch = globalThis.fetch;
+  test("retry budget stays per request across multi-key failover (never re-arms)", async () => {    const originalFetch = globalThis.fetch;
     let sends = 0;
     globalThis.fetch = (async (input, init) => {
       const url = input instanceof Request ? input.url : String(input);
@@ -372,9 +381,10 @@ describe("server same-target 429 retry (end-to-end)", () => {
       server = startServer(0);
       const res = await postResponses(server.url, "blsc/DeepSeek-V4-Flash");
       expect(res.status).toBe(429);
-      // attempts(1) on the first key + one failover key = 3 sends; a re-armed budget would
-      // have replayed on the second key too (4+ sends).
-      expect(sends).toBe(3);
+      // The 429 race spends the shared send budget on the first key (initial + racers), then one
+      // key-pool rotation reaches the second key: 5 sends. A re-armed budget would replay on the
+      // second key as well and push this higher.
+      expect(sends).toBe(5);
     } finally {
       try {
         await server?.stop(true);
