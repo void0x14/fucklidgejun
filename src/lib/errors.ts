@@ -252,8 +252,15 @@ const MIN_PLAUSIBLE_CONTEXT_MAXIMUM = 1_024;
  */
 export function parseStatedContextMaximum(text: string): number | undefined {
   if (!text) return undefined;
+  // A provider body reaches us JSON-escaped, sometimes twice, so the comparison can arrive as
+  // \u003e, \\u003e or an HTML entity.
+  const normalized = text
+    .replaceAll(/\\+u003e/gi, ">")
+    .replaceAll(/\\+u003c/gi, "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&lt;", "<");
   for (const pattern of STATED_MAXIMUM_PATTERNS) {
-    const match = pattern.exec(text);
+    const match = pattern.exec(normalized);
     if (!match?.[1]) continue;
     const value = Number(match[1].replaceAll(/[,_]/g, ""));
     if (!Number.isSafeInteger(value) || value < MIN_PLAUSIBLE_CONTEXT_MAXIMUM) continue;

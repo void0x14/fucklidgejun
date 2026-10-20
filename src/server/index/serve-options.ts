@@ -829,7 +829,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
           }
           throw error;
         }
-        const { accountBoundNativeOpenAiSlugsBySelector, applyMeasuredAutoCompactTrigger, applyNativeVisibility, buildCatalogEntries, configuredNativeAliasSlugs, desktopAllowlistSuppressedNativeSlugs, disabledNativeSlugs, exactComboCatalogSlugs, loadCatalogTemplate, NATIVE_OPENAI_MODELS, nativeContextLimits, nativeInputModalities, nativeOpenAiContextWindow, nativeOpenAiMaxOutputTokens, nativeOpenAiContextTier, nativeOpenAiSlugs, nativeReasoningEfforts, nativeDefaultReasoningEffort, shouldIncludeAccountBoundNativeOpenAi, shouldIncludeNativeOpenAi, uniqueCatalogModelsForRawPublicList, visibleCodexAccountSelectors, visibleNativeSlugs, desktopVisibleNativeSlugs } = await import("../../codex/catalog");
+        const { accountBoundNativeOpenAiSlugsBySelector, applyMeasuredAutoCompactTrigger, applyObservedAutoCompactTrigger, applyNativeVisibility, buildCatalogEntries, configuredNativeAliasSlugs, desktopAllowlistSuppressedNativeSlugs, disabledNativeSlugs, exactComboCatalogSlugs, loadCatalogTemplate, NATIVE_OPENAI_MODELS, nativeContextLimits, nativeInputModalities, nativeOpenAiContextWindow, nativeOpenAiMaxOutputTokens, nativeOpenAiContextTier, nativeOpenAiSlugs, nativeReasoningEfforts, nativeDefaultReasoningEffort, shouldIncludeAccountBoundNativeOpenAi, shouldIncludeNativeOpenAi, uniqueCatalogModelsForRawPublicList, visibleCodexAccountSelectors, visibleNativeSlugs, desktopVisibleNativeSlugs } = await import("../../codex/catalog");
         const { ACCOUNT_GATED_NATIVE_OPENAI_MODELS } = await import("../../codex/catalog/native-models");
         const includeNativeOpenAi = shouldIncludeNativeOpenAi(config);
         const includeAccountBoundNativeOpenAi = shouldIncludeAccountBoundNativeOpenAi(config);
@@ -1024,6 +1024,9 @@ export function createServeOptions(ctx: ServeOptionsContext) {
             entries,
             measured === undefined ? undefined : { ...measured, overflowed: overflowed !== undefined },
           );
+          // A ceiling the provider stated in its own refusal beats both the catalog and the
+          // measurement, because it is the only number the provider has actually enforced.
+          applyObservedAutoCompactTrigger(entries);
           return jsonResponse({
             models: applyNativeVisibility(
               entries,

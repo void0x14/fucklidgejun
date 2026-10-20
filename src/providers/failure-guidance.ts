@@ -103,7 +103,7 @@ export async function humanizeProviderErrorResponse(
   if (response.status < 400 || response.status === 499) return response;
   let text = "";
   try {
-    const body = await readBoundedResponseBody(response, { maxBytes: 16_384, totalTimeoutMs: 2_000 });
+    const body = await readBoundedResponseBody(response, { maxBytes: 131_072, totalTimeoutMs: 2_000 });
     if (body.displaySafe && !body.truncated) text = body.text;
   } catch { /* Yanıtsız veya bozuk hata gövdesinde durum koduyla açıklama yapılır. */ }
   // Before the body below is rebuilt: the refusal is the only trustworthy source for the ceiling.

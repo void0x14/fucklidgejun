@@ -38,7 +38,11 @@ const MAX_OBSERVED_CEILINGS = 1024;
 function ceilingKey(provider: string, model: string): string | undefined {
   if (typeof provider !== "string" || !provider) return undefined;
   if (typeof model !== "string" || !model) return undefined;
-  return slugEquivalenceKey(`${provider}/${model}`);
+  // The route identity arrives either bare ("global:x") or namespaced ("provider/global:x");
+  // both must land on the catalog slug's key.
+  const prefix = `${provider}/`;
+  const bare = model.startsWith(prefix) ? model.slice(prefix.length) : model;
+  return slugEquivalenceKey(`${provider}/${bare}`);
 }
 
 /**
