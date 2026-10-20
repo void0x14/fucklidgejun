@@ -11,6 +11,7 @@ import { contextRelayActivated } from "../../codex/context-compat";
 import { recordContextSessionOwner } from "../../codex/context-owner";
 import { resolveContextPrincipal } from "../auth-cors";
 import { COMPACT_PROMPT } from "../../responses/compaction";
+import { fitRoutedCompactionToObservedCeiling } from "./compaction-fit";
 import type { RoutedNamespaceToolAliases } from "../../responses/namespace-tool-compat";
 import type { MuseToolNameAliases } from "../../responses/muse-tool-name-alias";
 import type { AdapterRequest } from "../../adapters/base";
@@ -101,6 +102,13 @@ export function createResponsesEffects(
       delete (parsed._rawBody as Record<string, unknown>).text;
     }
     parsed.context.messages.push({ role: "user", content: COMPACT_PROMPT, timestamp: Date.now() });
+    // A compaction body larger than the ceiling its provider enforces can never succeed: every
+    // retry rebuilds the same oversize request, so the conversation stays uncompactable forever
+    // (measured 100,001 against 100,000). The observed ceiling is the only number that came from
+    // the provider itself, so it is the only one worth fitting the body to. This runs after the
+    // instruction is pushed so the instruction is charged to the budget and pinned, and only on
+    // this branch, so no normal turn's history can be touched.
+    fitRoutedCompactionToObservedCeiling(parsed, route.providerName, route.modelId);
   }
 
   let routedNamespaceToolAliases: RoutedNamespaceToolAliases = new Map();

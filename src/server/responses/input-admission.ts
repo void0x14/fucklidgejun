@@ -15,7 +15,7 @@ import { estimateTokens } from "../../lib/token-estimate";
 import { narrowCeilingToObserved } from "../../providers/observed-context-ceiling";
 import { isCanonicalOpenAiForwardProvider, OPENAI_CODEX_PROVIDER_ID } from "../../providers/openai-tiers";
 import { modelRecordValue } from "../../reasoning-effort";
-import type { OcxContentPart, OcxParsedRequest, OcxProviderConfig } from "../../types";
+import type { OcxContentPart, OcxMessage, OcxParsedRequest, OcxProviderConfig } from "../../types";
 
 /**
  * Multiplier applied to the ceiling before refusing.
@@ -103,19 +103,7 @@ export function estimateInputTokens(parsed: OcxParsedRequest, modelId: string): 
 
   for (const prompt of context.systemPrompt ?? []) total += estimateTokens(prompt, modelId);
 
-  for (const message of context.messages) {
-    if (message.role === "assistant") {
-      for (const part of message.content) {
-        if (part.type === "text") total += estimateTokens(part.text, modelId);
-        else if (part.type === "thinking") total += estimateTokens(part.thinking, modelId);
-        else total += estimateTokens(part.name, modelId) + estimateTokens(JSON.stringify(part.arguments), modelId);
-      }
-      // Opaque provider blob replayed verbatim upstream, so it costs real input tokens.
-      if (message.kiroRedactedReasoning) total += estimateTokens(message.kiroRedactedReasoning, modelId);
-      continue;
-    }
-    total += contentTokens(message.content, modelId);
-  }
+  for (const message of context.messages) total += estimateMessageTokens(message, modelId);
 
   // Tool schemas ride every turn: name, description, and the JSON parameter schema all
   // reach the upstream, and a large MCP catalog can dominate a short conversation.
@@ -126,6 +114,28 @@ export function estimateInputTokens(parsed: OcxParsedRequest, modelId: string): 
   }
 
   return total;
+}
+
+/**
+ * Token cost of one message, shared with `estimateInputTokens`.
+ *
+ * Extracted so a caller that has to DROP history (the compaction fitter) charges each message
+ * exactly what the admission gate charges it. Two walks over the same union would drift, and
+ * the one that drifted would be the one deciding what a compaction turn is allowed to keep.
+ */
+export function estimateMessageTokens(message: OcxMessage, modelId: string): number {
+  if (message.role === "assistant") {
+    let total = 0;
+    for (const part of message.content) {
+      if (part.type === "text") total += estimateTokens(part.text, modelId);
+      else if (part.type === "thinking") total += estimateTokens(part.thinking, modelId);
+      else total += estimateTokens(part.name, modelId) + estimateTokens(JSON.stringify(part.arguments), modelId);
+    }
+    // Opaque provider blob replayed verbatim upstream, so it costs real input tokens.
+    if (message.kiroRedactedReasoning) total += estimateTokens(message.kiroRedactedReasoning, modelId);
+    return total;
+  }
+  return contentTokens(message.content, modelId);
 }
 
 /**
