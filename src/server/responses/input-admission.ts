@@ -184,11 +184,10 @@ export function resolveInputCeiling(
   const configuredMaxInput = positive(modelRecordValue(provider.modelMaxInputTokens, modelId));
   const limits = [window, configuredMaxInput, nativeMaxInput].filter((v): v is number => v !== null);
   const resolved = limits.length === 0 ? null : Math.min(...limits);
-  // Last, because it is the only ceiling that was MEASURED rather than declared: the provider
-  // refused a prompt and stated the maximum it enforces. It narrows the resolved ceiling and can
-  // never raise it — see src/providers/observed-context-ceiling.ts for why the catalog is not
-  // trusted here.
-  return narrowCeilingToObserved(resolved, providerName, modelId);
+  // The observed ceiling is NOT applied here: a refusal on the compaction request shape states
+  // the limit for that shape, not the model's window. A 1M model whose compaction turn was
+  // refused at 100k must keep admitting ordinary turns against 1M.
+  return resolved;
 }
 
 /**
