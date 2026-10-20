@@ -21,6 +21,7 @@ export const RESPONSES_CORE_MODULES = [
   "request-transport.ts",
   "request-sidecar-auth.ts",
   "response-effects.ts",
+  "compaction-fit.ts",
   "request-send-budget.ts",
   "passthrough-execution.ts",
   "passthrough-dispatch.ts",
