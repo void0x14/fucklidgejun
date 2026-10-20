@@ -61,7 +61,8 @@ import {
   nativeOpenAiCapabilitySourceSlug,
   subscribeConfiguredNativeOpenAiModels,
 } from "./native-models";
-import { cachedAvailableAccountGatedNativeModels } from "../model-entitlements";
+import { cachedAvailableAccountGatedNativeModels, cachedConfirmedCodexModelRoster, cachedConfirmedCodexModelRosterRecord } from "../model-entitlements";
+import type { CodexModelRosterRecord } from "../model-entitlements";
 import { MAIN_CODEX_ACCOUNT_ID } from "../main-account";
 export { CODEX_NATIVE_ALIAS_CATALOG_KIND } from "./kinds";
 export {
@@ -128,7 +129,16 @@ export function isNativeAliasCatalogEntry(entry: RawEntry): boolean {
 export function isUnsupportedOpenAiNativeSlug(slug: string): boolean {
   if (slug.includes("/")) return false;
   if (SUPPORTED_NATIVE_OPENAI_SLUGS.has(slug)) return false;
+  // A slug a confirmed roster named IS supported, even before this build learns about it.
+  // Without this, a roster-only model would be treated as a foreign row by the sync merge and
+  // dropped from the persisted catalog on the next pass.
+  if (isConfirmedRosterNativeSlug(slug)) return false;
   return /^(?:gpt|codex)-/.test(slug);
+}
+
+/** Whether a confirmed account roster names this native slug (see `nativeRosterSlugs`). */
+export function isConfirmedRosterNativeSlug(slug: string): boolean {
+  return cachedConfirmedCodexModelRosterRecord(slug) !== null;
 }
 
 /**
@@ -525,7 +535,11 @@ export function nativeModelRows(config: Pick<OcxConfig, "disabledModels" | "comb
     config.providers?.[OPENAI_CODEX_PROVIDER_ID],
   ) === "direct" ? new Set([MAIN_CODEX_ACCOUNT_ID]) : undefined;
   const availableGated = cachedAvailableAccountGatedNativeModels(Date.now(), bareEligibleAccountIds);
-  return NATIVE_OPENAI_MODELS
+  // Same universe `nativeOpenAiSlugs()` uses, minus the live-catalog union this reader never
+  // took: a confirmed roster replaces the bundled snapshot, and an unconfirmed one leaves the
+  // built-in list exactly as it was.
+  const baseSlugs = nativeRosterSlugs() ?? NATIVE_OPENAI_MODELS;
+  return baseSlugs
     .filter(slug => !ACCOUNT_GATED_NATIVE_OPENAI_MODELS.has(slug) || availableGated.has(slug))
     .filter(slug => !shadowed.has(slug)).map(slug => {
     const contextWindow = nativeOpenAiContextWindow(slug, limits);
@@ -554,7 +568,9 @@ export function applyNativeVisibility(
     const nativeSlug = accountBoundSlug ?? slug;
     if (!nativeSlug
       || (!accountBoundSlug && slug.includes("/"))
-      || (!SUPPORTED_NATIVE_OPENAI_SLUGS.has(nativeSlug) && !observedNativeSlugs.has(nativeSlug))) continue;
+      || (!SUPPORTED_NATIVE_OPENAI_SLUGS.has(nativeSlug)
+        && !observedNativeSlugs.has(nativeSlug)
+        && !isConfirmedRosterNativeSlug(nativeSlug))) continue;
     const disabled = disabledModels.has(nativeSlug)
       || (accountBoundSlug !== undefined && disabledModels.has(slug));
     entry.visibility = disabled || (!accountBoundSlug && hideBareNative)
@@ -651,9 +667,39 @@ subscribeConfiguredNativeOpenAiModels((current, removed) => {
   }
 });
 
+/**
+ * A native catalog entry built from the account's OWN roster row.
+ *
+ * The bundled snapshot can only describe the models codex-rs has bundled. An account whose
+ * roster names a model the snapshot has never carried — `gpt-6-luna`, `gpt-6.1-sol`,
+ * `codex-auto-review` in the 2026-09 roster — otherwise has no row to offer at all, and the
+ * pre-roster code either dropped the model or dressed it in another model's capabilities.
+ *
+ * So the row is copied verbatim, exactly as `upstreamNativeEntry` does for a pinned row. Every
+ * field the roster did not state stays absent rather than being inherited from a neighbour:
+ * a guessed context window or reasoning ladder is a claim upstream never made for this model,
+ * and the catalog's own accessors already treat an absent field as "unknown" rather than
+ * substituting one. The single addition is `display_name`, which falls back to the bare slug —
+ * the same "fallback quality" convention `shouldUpgradeToUpstreamEntry` recognises, so a later
+ * snapshot refresh that does carry the model replaces this row instead of being shadowed by it.
+ */
+export function rosterNativeEntry(slug: string): RawEntry | null {
+  const record = cachedConfirmedCodexModelRosterRecord(slug);
+  if (!record) return null;
+  const clone = withDerivedBaseInstructions(
+    JSON.parse(JSON.stringify(record.row)) as RawEntry,
+  );
+  clone.slug = record.slug;
+  if (typeof clone.display_name !== "string" || clone.display_name.length === 0) {
+    clone.display_name = record.slug;
+  }
+  delete clone.minimal_client_version;
+  return clone;
+}
+
 export function upstreamNativeEntry(slug: string): RawEntry | null {
   const entry = UPSTREAM_NATIVE_ENTRIES.get(slug);
-  if (!entry) return null;
+  if (!entry) return rosterNativeEntry(slug);
   const clone = JSON.parse(JSON.stringify(entry)) as RawEntry;
   delete clone.minimal_client_version;
   return clone;
@@ -699,12 +745,32 @@ export function shouldUpgradeToUpstreamEntry(entry: RawEntry): boolean {
     && entry.display_name !== UPSTREAM_NATIVE_ENTRIES.get(entry.slug)?.display_name;
 }
 
-export function nativeOpenAiSlugs(): string[] {
-  const live = catalogNativeSlugs();
+/**
+ * The native slugs a CONFIRMED account roster names, in roster order; `null` when no account
+ * has been confirmed yet.
+ *
+ * `null` rather than `[]` is the whole contract: an empty array would mean "the account owns
+ * nothing", which is indistinguishable from a failed discovery, and callers must keep their
+ * pre-roster behaviour in that case rather than emptying the picker.
+ */
+export function nativeRosterSlugs(
+  roster?: readonly string[] | null,
+): string[] | null {
+  const confirmed = roster ?? cachedConfirmedCodexModelRoster().map(record => record.slug);
+  if (confirmed.length === 0) return null;
+  // Configured natives are the operator's own ids, not snapshot content: they are offered
+  // whether or not upstream lists them, exactly as before this change.
+  return unique([...confirmed, ...configuredNativeOpenAiModels()]);
+}
+
+export function nativeOpenAiSlugs(roster?: readonly string[] | null): string[] {
   const availableGated = cachedAvailableAccountGatedNativeModels();
-  const candidates = live.length > 0
-    ? unique([...live, ...DOCUMENTED_NATIVE_OPENAI_ADDITIONS, ...configuredNativeOpenAiModels()])
-    : NATIVE_OPENAI_MODELS;
+  const confirmed = nativeRosterSlugs(roster);
+  const live = catalogNativeSlugs();
+  const candidates = confirmed
+    ?? (live.length > 0
+      ? unique([...live, ...DOCUMENTED_NATIVE_OPENAI_ADDITIONS, ...configuredNativeOpenAiModels()])
+      : NATIVE_OPENAI_MODELS);
   return candidates.filter(slug => (
     !ACCOUNT_GATED_NATIVE_OPENAI_MODELS.has(slug) || availableGated.has(slug)
   ));

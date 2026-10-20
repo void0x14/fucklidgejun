@@ -48,6 +48,7 @@ import { MAIN_CODEX_ACCOUNT_ID } from "../../codex/main-account";
 import {
   availableAccountGatedNativeModels,
   codexModelEntitlementStateForAccount,
+  confirmedCodexModelRoster,
   resolveCodexModelEntitlements,
 } from "../../codex/model-entitlements";
 import { CatalogGatherBusyError } from "../../codex/catalog/provider-fetch";
@@ -842,10 +843,14 @@ export function createServeOptions(ctx: ServeOptionsContext) {
           bareEligibleAccountIds,
         );
         const availableAccountGatedNativeSlugs = availableAccountGatedNativeModels(modelEntitlements);
-        const availableBareNativeSlugs = NATIVE_OPENAI_MODELS.filter(slug => (
+        // A confirmed account's own roster is the authority on what it can use: the static
+        // snapshot both offers models the account does not own and omits models it does.
+        const confirmedRoster = confirmedCodexModelRoster(modelEntitlements, bareEligibleAccountIds).map(record => record.slug);
+        const nativeUniverse: readonly string[] = confirmedRoster.length > 0 ? confirmedRoster : NATIVE_OPENAI_MODELS;
+        const availableBareNativeSlugs = nativeUniverse.filter(slug => (
           !ACCOUNT_GATED_NATIVE_OPENAI_MODELS.has(slug) || availableBareGatedNativeSlugs.has(slug)
         ));
-        const availableAccountNativeSlugs = NATIVE_OPENAI_MODELS.filter(slug => (
+        const availableAccountNativeSlugs = nativeUniverse.filter(slug => (
           !ACCOUNT_GATED_NATIVE_OPENAI_MODELS.has(slug) || availableAccountGatedNativeSlugs.has(slug)
         ));
         const nativeSlugs = includeNativeOpenAi

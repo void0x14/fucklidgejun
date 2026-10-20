@@ -381,6 +381,20 @@ export type CodexModelEntitlementStatus =
     }
   | { readonly status: "expired-refresh-in-flight" };
 
+/**
+ * One row of an authenticated account's own `/models` roster, kept verbatim and in the order
+ * upstream returned it.
+ *
+ * The slug alone is enough to answer "is this model granted?", but it is not enough to OFFER
+ * the model: a slug the bundled snapshot does not carry has no row to build a catalog entry
+ * from, and borrowing another model's row would advertise capabilities upstream never stated
+ * for it. Keeping the whole row is what lets the catalog be built from the account's own answer.
+ */
+export interface CodexModelRosterRecord {
+  readonly slug: string;
+  readonly row: Readonly<Record<string, unknown>>;
+}
+
 interface CachedAccountModels {
   readonly credentialIdentity: string;
   /**
@@ -391,6 +405,8 @@ interface CachedAccountModels {
   readonly clientVersion: string;
   readonly expiresAt: number;
   readonly models: ReadonlySet<string>;
+  /** `models`, in upstream order, with each row's own fields retained (see the type doc). */
+  readonly roster: readonly CodexModelRosterRecord[];
   readonly confirmed: boolean;
   readonly provenance?: CodexModelEntitlementProvenance;
 }
@@ -400,6 +416,13 @@ export interface CodexModelEntitlementSnapshot {
   readonly clientVersionByAccount: ReadonlyMap<string, string>;
   readonly confirmedAccountIds: ReadonlySet<string>;
   readonly credentialIdentities: ReadonlyMap<string, string>;
+  /**
+   * Rows behind `modelsByAccount`, for callers that must OFFER the account's models rather
+   * than merely gate them. Optional so a snapshot assembled from `modelsByAccount` alone stays
+   * valid: an absent map means no roster rows were captured, which reads as "nothing to offer"
+   * and leaves every existing consumer on its previous path.
+   */
+  readonly rosterByAccount?: ReadonlyMap<string, readonly CodexModelRosterRecord[]>;
 }
 
 export type CodexModelEntitlementState = "granted" | "denied" | "unknown";
@@ -568,17 +591,28 @@ async function accountCredentialSnapshot(
   }
 }
 
-function parseAccountModels(text: string): ReadonlySet<string> | null {
+/**
+ * Parse one `/models` body into the account's usable rows, in upstream order.
+ *
+ * The filter is unchanged and deliberately narrow: a row is usable only when upstream itself
+ * says the account may drive it (`supported_in_api`) and has not hidden it. A hidden or
+ * api-disabled row is not an entitlement, so it must not become a catalog entry either — the
+ * entitlement set and the offered list are the same rows by construction.
+ */
+function parseAccountRoster(text: string): {
+  readonly models: ReadonlySet<string>;
+  readonly roster: readonly CodexModelRosterRecord[];
+} | null {
   try {
     const payload = JSON.parse(text) as { models?: unknown };
     if (!Array.isArray(payload.models)) return null;
-    const models = payload.models.flatMap(entry => {
+    const roster = payload.models.flatMap((entry): CodexModelRosterRecord[] => {
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
       const row = entry as { slug?: unknown; supported_in_api?: unknown; visibility?: unknown };
       if (typeof row.slug !== "string" || row.supported_in_api !== true || row.visibility === "hide") return [];
-      return [row.slug];
+      return [{ slug: row.slug, row: row as Readonly<Record<string, unknown>> }];
     });
-    return new Set(models);
+    return { models: new Set(roster.map(record => record.slug)), roster };
   } catch {
     return null;
   }
@@ -595,6 +629,7 @@ function unconfirmedAccountModels(
     clientVersion,
     expiresAt: now + MODEL_ROSTER_FAILURE_TTL_MS,
     models: new Set(),
+    roster: [],
     confirmed: false,
     provenance,
   };
@@ -637,10 +672,11 @@ async function fetchAccountModels(
     if (!body.displaySafe || body.truncated) {
       return unconfirmedAccountModels(credential, clientVersion, now, { kind: "unparseable" });
     }
-    const models = parseAccountModels(body.text);
-    if (models === null) {
+    const parsed = parseAccountRoster(body.text);
+    if (parsed === null) {
       return unconfirmedAccountModels(credential, clientVersion, now, { kind: "unparseable" });
     }
+    const { models, roster } = parsed;
     // A roster is a confirmation only when it lists something usable. `models` is a Set, and an
     // empty Set is truthy, so `models !== null` used to call `{"models":[]}` — and a response
     // whose every row was hidden or api-disabled — a confirmed answer, and lock it in for the
@@ -670,6 +706,7 @@ async function fetchAccountModels(
         ? MODEL_ROSTER_TTL_MS
         : MODEL_ROSTER_FAILURE_TTL_MS),
       models,
+      roster,
       confirmed: true,
     };
   } catch (error) {
@@ -731,6 +768,7 @@ async function modelsForCredential(
       clientVersion,
       expiresAt: now,
       models: new Set(),
+      roster: [],
       confirmed: false,
     };
   }
@@ -746,6 +784,7 @@ async function modelsForCredential(
       clientVersion,
       expiresAt: now,
       models: new Set(),
+      roster: [],
       confirmed: false,
     };
   }
@@ -1081,6 +1120,7 @@ export async function resolveCodexModelEntitlements(
     ))),
     confirmedAccountIds: new Set(results.flatMap(({ credential, result }) => result.confirmed ? [credential.accountId] : [])),
     credentialIdentities: new Map(results.map(({ credential }) => [credential.accountId, credential.credentialIdentity])),
+    rosterByAccount: new Map(results.map(({ credential, result }) => [credential.accountId, result.roster])),
   };
 }
 
@@ -1194,6 +1234,87 @@ export function cachedAvailableAccountGatedNativeModels(
   )));
 }
 
+/**
+ * The rows a CONFIRMED account roster actually names, in roster order.
+ *
+ * This is the answer to "which native models may be OFFERED?", and it is a different question
+ * from `availableAccountGatedNativeModels`' "which gated models are granted?". A gated model is
+ * hidden until proven; an ungated one used to be offered unconditionally from the bundled
+ * snapshot, which is how an account's picker ended up listing seven models the account does not
+ * own while omitting three it does. A confirmed roster is upstream's own list for that account,
+ * so it is the only evidence that can answer this without guessing.
+ *
+ * Accounts are unioned in cache order and a slug keeps its FIRST position, so a single
+ * confirmed account reproduces upstream's order exactly. `rosterByAccount` being absent (a
+ * snapshot assembled from `modelsByAccount` alone) yields no rows, which leaves every caller on
+ * its previous path.
+ */
+export function confirmedCodexModelRoster(
+  snapshot: CodexModelEntitlementSnapshot,
+  eligibleAccountIds?: ReadonlySet<string>,
+): readonly CodexModelRosterRecord[] {
+  const rows = snapshot.rosterByAccount;
+  if (!rows) return [];
+  const seen = new Set<string>();
+  const out: CodexModelRosterRecord[] = [];
+  for (const [accountId, roster] of rows) {
+    if (!snapshot.confirmedAccountIds.has(accountId)) continue;
+    if (eligibleAccountIds && !eligibleAccountIds.has(accountId)) continue;
+    for (const record of roster) {
+      if (seen.has(record.slug)) continue;
+      seen.add(record.slug);
+      out.push(record);
+    }
+  }
+  return out;
+}
+
+/** Synchronous form of `confirmedCodexModelRoster` over whatever discovery already proved. */
+export function cachedConfirmedCodexModelRoster(
+  now = Date.now(),
+  eligibleAccountIds?: ReadonlySet<string>,
+  clientVersion?: string | null,
+): readonly CodexModelRosterRecord[] {
+  const version = isUsableCodexClientVersion(clientVersion) ? clientVersion.trim() : null;
+  const seen = new Set<string>();
+  const out: CodexModelRosterRecord[] = [];
+  for (const [key, entry] of accountModelsCache) {
+    const accountId = accountIdOfCacheKey(key);
+    if (accountId.startsWith(DIRECT_CALLER_ACCOUNT_PREFIX)) continue;
+    if (eligibleAccountIds && !eligibleAccountIds.has(accountId)) continue;
+    if (version !== null && entry.clientVersion !== version) continue;
+    if (entry.expiresAt <= now || !entry.confirmed) continue;
+    for (const record of entry.roster) {
+      if (seen.has(record.slug)) continue;
+      seen.add(record.slug);
+      out.push(record);
+    }
+  }
+  return out;
+}
+
+/**
+ * One confirmed roster row by slug, without materializing the whole union.
+ *
+ * The catalog asks this per native slug while building entries, so it must not allocate the
+ * account-wide list on every call.
+ */
+export function cachedConfirmedCodexModelRosterRecord(
+  slug: string,
+  now = Date.now(),
+  clientVersion?: string | null,
+): CodexModelRosterRecord | null {
+  const version = isUsableCodexClientVersion(clientVersion) ? clientVersion.trim() : null;
+  for (const [key, entry] of accountModelsCache) {
+    if (accountIdOfCacheKey(key).startsWith(DIRECT_CALLER_ACCOUNT_PREFIX)) continue;
+    if (version !== null && entry.clientVersion !== version) continue;
+    if (entry.expiresAt <= now || !entry.confirmed) continue;
+    const record = entry.roster.find(candidate => candidate.slug === slug);
+    if (record) return record;
+  }
+  return null;
+}
+
 export function isCodexModelEntitlementSnapshotCurrent(snapshot: CodexModelEntitlementSnapshot): boolean {
   for (const [accountId, identity] of snapshot.credentialIdentities) {
     if (currentCredentialIdentity(accountId) !== identity) return false;
@@ -1246,18 +1367,27 @@ export function memoizeRuntimeVersionForTests(
   return memoizedPersistedRuntimeVersion(loadRuntime, now);
 }
 
+/**
+ * Test-only seed for a confirmed roster.
+ *
+ * `roster` is what the account's `/models` body carried, in order. Omitting it leaves the
+ * cache with the slug set and NO rows, which is the pre-existing behaviour: entitlement
+ * decisions answer exactly as before and nothing derives an offered list from it.
+ */
 export function seedCodexModelEntitlementsForTests(
   accountId: string,
   models: readonly string[],
   now = Date.now(),
   clientVersion = "0.146.0",
   credentialIdentity = `test:${accountId}`,
+  roster: readonly CodexModelRosterRecord[] = [],
 ): void {
   boundedCacheSet(accountId, {
     credentialIdentity,
     clientVersion,
     expiresAt: now + MODEL_ROSTER_TTL_MS,
     models: new Set(models),
+    roster,
     confirmed: true,
   });
 }
