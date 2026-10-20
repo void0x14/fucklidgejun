@@ -38,6 +38,7 @@ import {
 import { XaiToolSchemaCompatibilityError } from "../../adapters/xai-tool-schema";
 import { formatErrorResponse } from "../../bridge";
 import { redactSecretString } from "../../lib/redact";
+import { chargeWorkflowSends } from "../../lib/workflow-budget";
 import {
   collectFunctionCallRepairSchemas,
   repairFunctionCallsInJson,
@@ -892,23 +893,29 @@ export async function preparePassthroughExchange(
     };
     /**
      * One racer of the same-target 429 race: exactly ONE physical send of the SAME built
-     * request, admitted by the shared request budget and cancellable by the race.
+     * request, cancellable by the race.
      *
-     * It does not go through `rebuildAndRefetch`: that leg rebuilds (which would make six
+     * It does not go through `rebuildAndRefetch`: that leg rebuilds (which would make twelve
      * concurrent builders race over the shared `request` binding) and reserves through the
      * transient-retry allowance, which funds up to three sends. A racer is one send of the
-     * request already built for this target, and its refusal has to be distinguishable from a
-     * transport failure so the race can stop rather than keep spending.
+     * request already built for this target.
+     *
+     * The race's own wave cap is the only bound, so this leg does NOT consult
+     * `sendBudgetExhausted()`: a 429 must not reach the client, and a budget refusal that
+     * cancelled the race is exactly how it used to. Its send is charged to the root workflow
+     * (the storm ceiling) and deliberately NOT to this request's base allowance -- that
+     * allowance funds the recovery arms the race hands off to.
      */
     const sendSameTarget429Racer = async (
       signal: AbortSignal,
     ): Promise<SameTarget429LegOutcome> => {
-      // The request budget outranks the fan-out: a leg it refuses ends the race with the real
-      // 429 already in hand. Charged through the same shared reporter every other replay leg
-      // uses, and charged BEFORE the send -- a rejected send still consumes budget.
-      if (sendBudgetExhausted()) return { kind: "refused" };
       const raceRequest = request;
-      noteTransientSends(1);
+      // Charged to the ROOT workflow only, never to this request's base allowance. A racer is
+      // a real physical send, so the storm ceiling above the request must see it; but the
+      // per-request allowance is what funds the recovery arms this race hands off to, and
+      // spending it here turns a key-pool rotation that has a working key in hand into a 502.
+      // The race's wave cap is the bound, so the allowance stays untouched.
+      chargeWorkflowSends(workflowRootId, 1);
       noteAttemptSend(logCtx.activeAttempt, passthroughEstimate, "rate-limit-429");
       try {
         return {
@@ -1224,8 +1231,9 @@ export async function preparePassthroughExchange(
     // reaches the rotation arm.
     //
     // Bounded per REQUEST: the guard lives outside this loop, so a 401/413 replay that comes
-    // back 429 cannot re-arm a second race. The race caps the sends (1 initial + 6 + 6) and the
-    // request budget can stop it earlier.
+    // back 429 cannot re-arm a second race. The race caps the sends (1 initial + 12 x 10 = 121);
+    // the send budget is charged but never consulted, so it cannot stop the race early and hand
+    // the client a 429.
     if (upstreamResponse.status === 429 && !sameTarget429RaceAttempted) {
       sameTarget429RaceAttempted = true;
       const raced = await raceSameTarget429({

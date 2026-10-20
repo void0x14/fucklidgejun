@@ -21,6 +21,7 @@ import { inputSizeAgainstCeiling } from "./input-admission";
 import { nativeContextLimits } from "../../codex/catalog";
 import { clientCancelledResponse, readDisplaySafeErrorText, normalizeUpstreamErrorText } from "./core-errors";
 import { redactSecretString } from "../../lib/redact";
+import { chargeWorkflowSends } from "../../lib/workflow-budget";
 import { waitForProviderRequestSlot } from "../../providers/request-pacing";
 import { providerFetch, fetchWithHeaderTimeout, safeHostLabel } from "./fetch-helpers";
 import {
@@ -137,6 +138,7 @@ export async function prepareAdapterExchange(
     | "recoveryClassFor"
     | "sendBudgetExhausted"
     | "reserveCredentialHop"
+    | "workflowRootId"
   >,
 ) {
   const { options, config, logCtx, req } = requestContext;
@@ -169,6 +171,7 @@ export async function prepareAdapterExchange(
     recoveryClassFor,
     sendBudgetExhausted,
     reserveCredentialHop,
+    workflowRootId,
   } = sendBudgetState;
 
 
@@ -378,7 +381,7 @@ export async function prepareAdapterExchange(
   // recovery loop: a 413/401 replay that comes back 429 must not re-arm it. `rateLimitRetries`
   // is still the counter the terminal-guard continuation shares, but this loop no longer spends
   // it -- a 429 here is answered by the race below, which does not wait and is bounded on its
-  // own (1 initial + 6 + 6 racers, and never past what the request budget will fund).
+  // own (1 initial + 12 x 10 = 121 racers, and never past what the request budget will fund).
   const rateLimitPolicy = rateLimitRetryPolicyFor(route.provider);
   let rateLimitRetries = 0;
   let sameTarget429RaceAttempted = false;
@@ -550,7 +553,13 @@ export async function prepareAdapterExchange(
     };
     /**
      * One racer of the same-target 429 race: exactly ONE physical send of the SAME built
-     * request, admitted by the shared request budget and cancellable by the race.
+     * request, cancellable by the race.
+     *
+     * The race's own wave cap is the only bound, so this leg does NOT consult
+     * `sendBudgetExhausted()`: a 429 must not reach the client, and a budget refusal that
+     * cancelled the race is exactly how it used to. Its send is charged to the root workflow
+     * (the storm ceiling) and deliberately NOT to this request's base allowance -- that
+     * allowance funds the recovery arms the race hands off to.
      *
      * Deliberately not routed through `rebuildAndRefetch`: that leg owns the request's abort
      * link and maps a cancelled send into a client-visible failure, which is the wrong answer
@@ -560,14 +569,14 @@ export async function prepareAdapterExchange(
     const sendSameTarget429Racer = async (
       signal: AbortSignal,
     ): Promise<SameTarget429LegOutcome> => {
-      // The request budget outranks the fan-out: a leg it refuses ends the race with the real
-      // 429 already in hand. Charged through the same shared reporter every other replay leg
-      // uses, and charged BEFORE the send -- a rejected send still consumes budget, which is
-      // what keeps a reset storm from looping for free.
-      if (sendBudgetExhausted()) return { kind: "refused" };
       const raceRequest = transportState.sameTargetRequest;
       if (raceRequest === undefined) return { kind: "refused" };
-      noteTransientSends(1);
+      // Charged to the ROOT workflow only, never to this request's base allowance. A racer is
+      // a real physical send, so the storm ceiling above the request must see it; but the
+      // per-request allowance is what funds the recovery arms this race hands off to, and
+      // spending it here turns a key-pool rotation that has a working key in hand into a 502.
+      // The race's wave cap is the bound, so the allowance stays untouched.
+      chargeWorkflowSends(workflowRootId, 1);
       const activeAdapter = transportState.activeAdapter;
       noteAttemptSend(logCtx.activeAttempt, inputTokenEstimate, "rate-limit-429");
       try {
@@ -722,7 +731,8 @@ export async function prepareAdapterExchange(
       //
       // Bounded per REQUEST: `sameTarget429RaceAttempted` lives outside the recovery loop, so a
       // 401/413 replay that comes back 429 cannot re-arm a second race. The race itself caps
-      // the sends (1 initial + 6 + 6), and the request budget can stop it earlier.
+      // the sends (1 initial + 12 x 10 = 121); the send budget is charged but never consulted,
+      // so it cannot stop the race early and hand the client a 429.
       if (upstreamResponse.status === 429 && !sameTarget429RaceAttempted) {
         sameTarget429RaceAttempted = true;
         const raced = await raceSameTarget429({

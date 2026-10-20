@@ -16,26 +16,28 @@
  *   - launched `SAME_TARGET_429_STAGGER_MS` apart so they do not reach the socket at the same
  *     instant,
  *   - at most `SAME_TARGET_429_WAVES` waves, so one request can never exceed
- *     1 initial + 6 + 6 = 13 sends from this unit.
+ *     1 initial + 12 x 10 = 121 sends from this unit.
  *
- * The per-request execution budget still outranks all of that: a leg the budget refuses ends
- * the race immediately, with the last response already in hand returned to the caller.
+ * The wave cap is the ONLY bound. The per-request send budget is deliberately not consulted by
+ * the racers and a budget refusal does not end the race: a 429 must not reach the client, and a
+ * leg the budget declines is noise the remaining racers answer for, exactly like a transport
+ * failure. The wave cap still bounds the unit, so the ceiling stays 1 initial + 12 x 10 = 121.
  */
 import { sleepWithAbort } from "../../lib/upstream-retry";
 
 /** Concurrent identical re-sends in one wave. */
-export const SAME_TARGET_429_RACERS_PER_WAVE = 6;
+export const SAME_TARGET_429_RACERS_PER_WAVE = 12;
 /** Launch offset between two racers of the same wave. */
-export const SAME_TARGET_429_STAGGER_MS = 50;
+export const SAME_TARGET_429_STAGGER_MS = 20;
 /** Waves one request may run before the last 429 is returned. */
-export const SAME_TARGET_429_WAVES = 2;
+export const SAME_TARGET_429_WAVES = 10;
 
 /**
  * What one racer produced.
  *
- * `refused` is distinct from `failed` on purpose: a budget refusal is a decision this process
- * made and must stop the race, while a transport failure is noise that the remaining racers
- * are allowed to answer for.
+ * `refused` is kept as a distinct outcome so the racer senders can still report WHY a leg made
+ * no request, but it is handled exactly like `failed`: ignored. Neither a budget refusal nor a
+ * transport failure is this request's answer, so the remaining racers keep answering.
  */
 export type SameTarget429LegOutcome =
   | { readonly kind: "response"; readonly response: Response }
@@ -60,7 +62,7 @@ export interface SameTarget429RaceResult {
   readonly response: Response;
   /** Physical sends this race started, excluding the initial attempt. */
   readonly sends: number;
-  /** True when the budget refused a leg or the caller cancelled before the waves ran out. */
+  /** True when the caller cancelled before the waves ran out. */
   readonly stopped: boolean;
 }
 
@@ -112,7 +114,7 @@ export async function raceSameTarget429(
         legs.push((async () => {
           if (index > 0) {
             // A launch offset, not a wait for the previous answer: every racer is in flight
-            // at once, 50 ms apart.
+            // at once, 20 ms apart.
             try {
               await sleepWithAbort(index * SAME_TARGET_429_STAGGER_MS, race.signal);
             } catch {
@@ -122,11 +124,10 @@ export async function raceSameTarget429(
           if (settled || stopped || race.signal.aborted) return;
           sends += 1;
           const outcome = await send(race.signal);
-          if (outcome.kind === "refused") {
-            stopped = true;
-            race.abort();
-            return;
-          }
+          // `refused` and `failed` are both noise: the leg made no answer for this request, and
+          // the remaining racers are still allowed to produce one. A 429 must never reach the
+          // client just because a leg was declined, so neither ends the race. Only a non-429
+          // response, the wave cap, or the caller's abort does.
           if (outcome.kind !== "response") return;
           if (settled) {
             // Lost the race between its response and its turn to be read.
