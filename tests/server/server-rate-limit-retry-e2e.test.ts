@@ -151,14 +151,16 @@ describe("server same-target 429 retry (end-to-end)", () => {
       saveConfig(config);
       server = startServer(0);
       const res = await postResponses(server.url, "blsc/DeepSeek-V4-Flash");
-      // The same-target 429 race runs for every provider, opt-in or not: the initial send plus
-      // three racers, which is where the request's send budget refuses the next leg. The real
-      // upstream 429 -- body and Retry-After included -- is what the client receives.
+      // The same-target 429 race runs for every provider, opt-in or not, and nothing but its
+      // own wave cap bounds it: the initial send plus 12 racers x 10 waves = 121 sends. The
+      // per-request send budget is NOT consulted, so it no longer cuts the race short. Every
+      // send 429'd, so the wave cap is what ends the race, and the real upstream 429 -- body
+      // and Retry-After included -- is what the client receives.
       expect(res.status).toBe(429);
       expect(res.headers.get("retry-after")).toBe("17");
       const json = await res.json() as { error?: { type?: string } };
       expect(json.error?.type).toBe("rate_limit_error");
-      expect(sends).toBe(4);
+      expect(sends).toBe(121);
     } finally {
       try {
         await server?.stop(true);
@@ -203,9 +205,11 @@ describe("server same-target 429 retry (end-to-end)", () => {
       server = startServer(0);
       const res = await postResponses(server.url, "blsc/DeepSeek-V4-Flash");
       // `retryOn429.attempts` no longer bounds same-target 429 handling -- the race does, and
-      // the shared per-request send budget stops it before the wave is spent.
+      // the race is bounded only by its wave cap: 1 initial + 12 x 10 = 121 sends. A racer that
+      // the send budget declines is now ignored rather than ending the race, so the budget can
+      // no longer hand the client a 429 at four sends.
       expect(res.status).toBe(429);
-      expect(sends).toBe(4);
+      expect(sends).toBe(121);
     } finally {
       try {
         await server?.stop(true);
@@ -258,16 +262,15 @@ describe("server same-target 429 retry (end-to-end)", () => {
       server = startServer(0);
       const res = await postResponses(server.url, "blsc/DeepSeek-V4-Flash");
       expect(res.status).toBe(200);
-      // Initial send + three racers all stay on the same key (the race never rotates), and only
-      // the pool arm after them moves to the sibling key. A 2-key pool raises the request
-      // budget by one, which is the extra racer over the single-key case.
-      expect(seenAuth).toEqual([
-        "Bearer key-alpha-000111222333",
-        "Bearer key-alpha-000111222333",
-        "Bearer key-alpha-000111222333",
-        "Bearer key-alpha-000111222333",
+      // The race never rotates: all 1 initial + 120 racers = 121 sends stay on the first key,
+      // and only the pool arm after them moves to the sibling key, which answers 200. The race
+      // leaves the per-request send allowance untouched on purpose -- spending it here would
+      // make the rotation refuse its send and turn this 200 into a 502.
+      const expectedAuth = [
+        ...Array<string>(121).fill("Bearer key-alpha-000111222333"),
         "Bearer key-beta-444555666777",
-      ]);
+      ];
+      expect(seenAuth).toEqual(expectedAuth);
     } finally {
       try {
         await server?.stop(true);
@@ -381,10 +384,10 @@ describe("server same-target 429 retry (end-to-end)", () => {
       server = startServer(0);
       const res = await postResponses(server.url, "blsc/DeepSeek-V4-Flash");
       expect(res.status).toBe(429);
-      // The 429 race spends the shared send budget on the first key (initial + racers), then one
-      // key-pool rotation reaches the second key: 5 sends. A re-armed budget would replay on the
-      // second key as well and push this higher.
-      expect(sends).toBe(5);
+      // The 429 race runs its whole wave cap on the first key -- 1 initial + 12 x 10 = 121
+      // sends -- and only then does one key-pool rotation reach the second key: 122 sends. A
+      // re-armed budget would replay on the second key as well and push this higher.
+      expect(sends).toBe(122);
     } finally {
       try {
         await server?.stop(true);
