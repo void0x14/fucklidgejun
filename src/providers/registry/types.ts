@@ -108,6 +108,7 @@ export interface ProviderRegistryEntry {
   apiKeyTransport?: OcxProviderConfig["apiKeyTransport"];
   alias?: string;
   authKind: ProviderAuthKind;
+  upstreamHttpVersion?: OcxProviderConfig["upstreamHttpVersion"];
   codexAccountMode?: CodexAccountMode;
   /** OAuth preset may explicitly honor a persisted API-key billing mode. */
   allowKeyAuthOverride?: boolean;

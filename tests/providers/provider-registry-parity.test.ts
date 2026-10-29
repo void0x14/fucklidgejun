@@ -193,7 +193,7 @@ describe("provider registry parity", () => {
     expect(KEY_LOGIN_PROVIDERS["openai-apikey"].modelInputModalities?.["gpt-5.5"]).toEqual(["text", "image"]);
     expect((KEY_LOGIN_PROVIDERS["openai-apikey"] as unknown as { virtualModels?: unknown }).virtualModels).toBeUndefined();
     const apiRegistry = PROVIDER_REGISTRY.find(entry => entry.id === "openai-apikey")!;
-    expect(apiRegistry.models).toHaveLength(11);
+    expect(apiRegistry.models).toHaveLength(13);
     expect(Object.keys(apiRegistry.virtualModels ?? {}).sort()).toEqual([
       "gpt-5.6-luna-pro", "gpt-5.6-sol-pro", "gpt-5.6-terra-pro",
     ]);
@@ -376,17 +376,12 @@ describe("provider registry parity", () => {
       expect(entry?.modelReasoningEffortMap?.["MiniMax-M3"]).toMatchObject({ low: "disabled", medium: "adaptive", high: "adaptive" });
       expect(entry?.preserveReasoningContentModels).toEqual(minimaxModels);
       expect(entry?.reasoningSplitModels).toEqual(minimaxModels);
-      expect(entry?.reasoningDetailsModels).toEqual(minimaxModels);
-      // The M3 family is wired from one constant, so every per-model list must carry BOTH
-      // members. A sibling that is listed for effort but missing from thinkingToggleModels
-      // makes the adapter send the thinking value as reasoning_effort, which MiniMax 400s.
-      expect(entry?.thinkingToggleModels).toEqual(["MiniMax-M3", "MiniMax-M3.1-Flash-Preview"]);
-      for (const modelId of ["MiniMax-M3", "MiniMax-M3.1-Flash-Preview"]) {
-        expect(entry?.modelReasoningEfforts?.[modelId]).toEqual(["low", "medium", "high", "xhigh", "max"]);
-        expect(entry?.modelDefaultReasoningEfforts?.[modelId]).toBe("medium");
-        expect(entry?.modelReasoningEffortMap?.[modelId]).toMatchObject({ low: "disabled", medium: "adaptive" });
-        expect(entry?.thinkingToggleModels).toContain(modelId);
-      }
+      expect(entry?.reasoningDetailsModels).toEqual(minimaxModels.filter(id => id !== "MiniMax-M3.1-Flash-Preview"));
+      expect(entry?.thinkingToggleModels).toEqual(["MiniMax-M3"]);
+      expect(entry?.upstreamHttpVersion).toBe("http1.1");
+      expect(entry?.modelDefaultReasoningEfforts?.["MiniMax-M3.1-Flash-Preview"]).toBe("medium");
+      expect(entry?.modelReasoningEffortMap?.["MiniMax-M3.1-Flash-Preview"]).toMatchObject({ none: "none", max: "high" });
+      expect(entry?.directReasoningEffortModels).toContain("MiniMax-M3.1-Flash-Preview");
       // Context windows are NOT carried in the registry: MiniMax exposes none on its API and the
       // value is fetched from the vendor's own documentation at runtime
       // (src/providers/documented-model-windows.ts). A registry window here would be exactly the

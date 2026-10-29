@@ -269,8 +269,28 @@ export function parseStatedContextMaximum(text: string): number | undefined {
   return undefined;
 }
 
+export function formatTurkishSocketClosedError(rawDetail?: string): string {
+  const detailSuffix = rawDetail ? `\n(Detay: ${rawDetail})` : "";
+  return (
+    `Hata: Model sağlayıcısı (upstream) veri akışı sırasında soket bağlantısını beklenmedik şekilde kapattı (Bağlantı Kesintisi / Zaman Aşımı).\n` +
+    `Neden: Model yanıt veya düşünme (reasoning) üretirken ağ geçidi 60 saniyelik zaman aşımı sınırına takıldı veya sunucu TCP bağlantısını kapattı${detailSuffix}.\n` +
+    `Çözüm:\n` +
+    `1. Sistem boşta kalan akışı otomatik yeniden denemeye almıştır; kalıcı olursa modelin 'reasoning_effort' seviyesini 'medium' veya 'low' yapın.\n` +
+    `2. Sağlayıcıda HTTP/2 yerine daha kararlı HTTP/1.1 bağlantısını ('upstreamHttpVersion: "http1.1"') etkinleştirin.`
+  );
+}
+
 export function classifyError(status: number, type: string, message: string): OcxErrorPayload {
   const text = message.toLowerCase();
+  if (
+    text.includes("socket connection was closed unexpectedly") ||
+    text.includes("connection reset by peer")
+  ) {
+    const formatted = message.includes("Model sağlayıcısı (upstream)")
+      ? message
+      : formatTurkishSocketClosedError(message);
+    return { message: formatted, type: "server_error", code: "upstream_server_error" };
+  }
   if (type === "previous_response_not_found") {
     return { message, type: "invalid_request_error", code: "previous_response_not_found" };
   }
@@ -530,6 +550,12 @@ export function adapterFailureFromMessage(message: string): { httpStatus: number
   const retryAfterSeconds = parseRetryAfterFromMessage(message);
   if (retryAfterSeconds && !/please try again in /i.test(message)) {
     finalMessage = `${message} Please try again in ${retryAfterSeconds}s.`;
+  }
+  if (
+    /socket connection was closed unexpectedly|connection reset by peer/i.test(message) &&
+    !message.includes("Model sağlayıcısı (upstream)")
+  ) {
+    finalMessage = formatTurkishSocketClosedError(message);
   }
   const errorType = httpStatus === 499
     ? "client_closed_request"

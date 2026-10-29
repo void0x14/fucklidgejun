@@ -14,7 +14,8 @@ import type { WebSearchBackendId } from "./index";
 import { clearableDeadline } from "../lib/abort";
 import { redactSecretString } from "../lib/redact";
 import { readBoundedResponseBody } from "../lib/bounded-body";
-import { applyUpstreamRecoveryInit, fetchWithResetRetry, prepareSameTarget429Wait } from "../lib/upstream-retry";
+import { applyUpstreamRecoveryInit, fetchWithResetRetry, isConnectionResetError, prepareSameTarget429Wait } from "../lib/upstream-retry";
+import { formatTurkishSocketClosedError } from "../lib/errors";
 import { rateLimitRetryDelayMs } from "../providers/key-failover";
 import {
   isTranslatorBudgetExceededError,
@@ -262,6 +263,13 @@ class LoopError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
     this.name = "LoopError";
+  }
+}
+
+export class StreamResetError extends LoopError {
+  constructor(status: number, message: string, readonly streamedPassthroughCount: number, readonly cause?: unknown) {
+    super(status, message);
+    this.name = "StreamResetError";
   }
 }
 
@@ -686,6 +694,16 @@ export async function runWithWebSearch(deps: WebSearchLoopDeps): Promise<Respons
       if (signal.aborted) throw new LoopError(499, "client closed request during web-search");
       if (error instanceof RoutedModelInactivityError) throw new LoopError(504, error.message);
       if (error instanceof WebSearchStreamProtocolError) throw new LoopError(502, error.message);
+      const isReset = isConnectionResetError(error)
+        || (error instanceof Error && /socket connection was closed|connection(?: was)? closed unexpectedly|ECONNRESET|EPIPE/i.test(error.message));
+      if (isReset) {
+        throw new StreamResetError(
+          502,
+          formatTurkishSocketClosedError(error instanceof Error ? error.message : String(error)),
+          streamedPassthroughCount,
+          error,
+        );
+      }
       throw new LoopError(502, `Provider stream error: ${error instanceof Error ? error.message : String(error)}`);
     }
 
@@ -872,29 +890,36 @@ export async function runWithWebSearch(deps: WebSearchLoopDeps): Promise<Respons
   // real sidecar timing, the final answer's passthrough events come last — matching native ordering
   // (search cell BEFORE the assistant message). Iteration 2+ failures surface as an in-stream error.
   async function* produce(): AsyncGenerator<AdapterEvent> {
-    let prepared = firstPrepared;
+    let prepared: IterationResponse | undefined = firstPrepared;
     let contentInspectionResends = 0;
+    let streamResetRetries = 0;
+    const MAX_STREAM_RESET_RETRIES = 2;
     try {
       for (let i = 0; i < HARD_CAP; i++) {
         const forceAnswer = searchesExecuted >= maxSearches;
         try {
-          // First loop turn reuses the eager HEADERS. Subsequent header acquisitions run here.
-          if (i > 0) {
-            yield { type: "heartbeat" };
-            prepared = yield* prepareIterationEvents(forceAnswer);
-          }
-          // Raw-byte progress heartbeats reach the bridge; semantic events remain buffered.
           let split: IterationSplit;
+        while (true) {
           try {
+            if (!prepared) {
+              yield { type: "heartbeat" };
+              prepared = yield* prepareIterationEvents(forceAnswer);
+            }
             split = yield* consumeIterationEvents(prepared);
+            prepared = undefined;
+            break;
           } catch (error) {
-            // An upstream content-inspection refusal describes ONE generation, not this
-            // conversation: the identical request is routinely accepted on the next call, and no
-            // other credential or provider changes that answer. It aborts mid-stream, so nothing
-            // client-visible escaped -- the iteration only yielded heartbeats before the refusal.
-            // Re-acquire the SAME iteration (same messages, tools and forceAnswer) once. A second
-            // refusal is the operator's answer, and an unbounded resend would double-bill every
-            // genuinely refused turn.
+            prepared = undefined;
+            if (
+              streamResetRetries < MAX_STREAM_RESET_RETRIES
+              && !signal.aborted
+              && error instanceof StreamResetError
+              && error.streamedPassthroughCount === 0
+            ) {
+              streamResetRetries += 1;
+              yield { type: "heartbeat" };
+              continue;
+            }
             if (
               contentInspectionResends === 0
               && !signal.aborted
@@ -902,12 +927,11 @@ export async function runWithWebSearch(deps: WebSearchLoopDeps): Promise<Respons
             ) {
               contentInspectionResends += 1;
               yield { type: "heartbeat" };
-              prepared = yield* prepareIterationEvents(forceAnswer);
-              split = yield* consumeIterationEvents(prepared);
-            } else {
-              throw error;
+              continue;
             }
+            throw error;
           }
+        }
 
           // Loop (search + re-ask) ONLY when the model's actionable output is purely web_search. A real
           // tool call (e.g. shell/apply_patch) means this turn is terminal for Codex — finalize so those

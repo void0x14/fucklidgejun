@@ -162,6 +162,12 @@ export function repairLegacyMiniMaxReasoning(entry: ProviderRegistryEntry, prov:
   if (sameStringArray(prov.reasoningDetailsModels, MINIMAX_MODELS)) {
     prov.reasoningDetailsModels = [...MINIMAX_REASONING_CONFIG.reasoningDetailsModels];
   }
+  if (prov.modelDefaultReasoningEfforts?.[MINIMAX_FLASH_MODEL] === "max") {
+    prov.modelDefaultReasoningEfforts = {
+      ...prov.modelDefaultReasoningEfforts,
+      [MINIMAX_FLASH_MODEL]: "medium",
+    };
+  }
 }
 
 type DirectReasoningEffortOverrides = Pick<
@@ -258,6 +264,7 @@ export function providerConfigSeed(entry: ProviderRegistryEntry): OcxProviderCon
   return {
     adapter: entry.adapter,
     baseUrl: entry.baseUrl,
+    ...(entry.upstreamHttpVersion !== undefined ? { upstreamHttpVersion: entry.upstreamHttpVersion } : {}),
     ...(entry.apiKeyTransport !== undefined ? { apiKeyTransport: entry.apiKeyTransport } : {}),
     ...(entry.responsesPath ? { responsesPath: entry.responsesPath } : {}),
     ...(entry.chatCompletionsPath ? { chatCompletionsPath: entry.chatCompletionsPath } : {}),
@@ -378,6 +385,7 @@ export function deriveInitProviders(): DerivedInitProvider[] {
     label: formatInitLabel(entry),
     adapter: entry.adapter,
     baseUrl: entry.baseUrl,
+    ...(entry.upstreamHttpVersion !== undefined ? { upstreamHttpVersion: entry.upstreamHttpVersion } : {}),
     kind: entry.authKind,
     ...(entry.codexAccountMode ? { codexAccountMode: entry.codexAccountMode } : {}),
     ...(entry.dashboardUrl ? { dashboardUrl: entry.dashboardUrl } : {}),
@@ -525,6 +533,7 @@ export function enrichProviderFromRegistry(name: string, prov: OcxProviderConfig
   };
   const seed = providerConfigSeed(entry);
   repairStaticModelCatalogProvider(name, prov);
+  if (prov.upstreamHttpVersion === undefined && seed.upstreamHttpVersion !== undefined) prov.upstreamHttpVersion = seed.upstreamHttpVersion;
   if (prov.apiKeyTransport === undefined && seed.apiKeyTransport !== undefined) prov.apiKeyTransport = seed.apiKeyTransport;
   if (!prov.defaultModel && seed.defaultModel) prov.defaultModel = seed.defaultModel;
   if (prov.responsesPath === undefined && seed.responsesPath !== undefined) prov.responsesPath = seed.responsesPath;
@@ -663,6 +672,7 @@ function entryToPreset(entry: ProviderRegistryEntry): DerivedProviderPreset {
     label: entry.label,
     adapter: entry.adapter,
     baseUrl: entry.baseUrl,
+    ...(entry.upstreamHttpVersion !== undefined ? { upstreamHttpVersion: entry.upstreamHttpVersion } : {}),
     ...(entry.responsesPath ? { responsesPath: entry.responsesPath } : {}),
     ...(entry.chatCompletionsPath ? { chatCompletionsPath: entry.chatCompletionsPath } : {}),
     auth: entry.authKind === "forward" ? "forward" : entry.authKind === "oauth" ? "oauth" : entry.authKind === "local" ? "local" : "key",

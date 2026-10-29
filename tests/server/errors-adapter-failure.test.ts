@@ -101,6 +101,17 @@ describe("adapterFailureFromMessage", () => {
     });
   });
 
+  test("maps socket closed unexpectedly to Turkish diagnostic message", () => {
+    const rawError = "Provider stream error: The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()";
+    const res = adapterFailureFromMessage(rawError);
+    expect(res.httpStatus).toBe(502);
+    expect(res.error.message).toContain("Model sağlayıcısı (upstream) veri akışı sırasında soket bağlantısını beklenmedik şekilde kapattı");
+    expect(res.error.message).toContain("Neden: Model yanıt veya düşünme (reasoning) üretirken");
+    expect(res.error.message).toContain("Çözüm:");
+    expect(res.error.message).toContain("upstreamHttpVersion: \"http1.1\"");
+    expect(res.error.code).toBe("upstream_server_error");
+  });
+
   test("an aborted compact request activates the 499 client_cancelled branch", async () => {
     // Drive the real compact cancellation path: a mid-stream abort while buffering.
     const controller = new AbortController();

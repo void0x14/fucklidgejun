@@ -137,11 +137,12 @@ export const MINIMAX_FLASH_MODEL = "MiniMax-M3.1-Flash-Preview";
 /** https://platform.minimax.io/docs/api-reference/text-openai-api */
 export const MINIMAX_REASONING_CONFIG = {
   modelReasoningEfforts: Object.fromEntries(MINIMAX_M3_FAMILY.map(id => [id, MINIMAX_M3_REASONING_EFFORTS])),
-  modelDefaultReasoningEfforts: { "MiniMax-M3": "medium", [MINIMAX_FLASH_MODEL]: "max" },
+  modelDefaultReasoningEfforts: { "MiniMax-M3": "medium", [MINIMAX_FLASH_MODEL]: "medium" },
   modelReasoningEffortMap: {
     "MiniMax-M3": MINIMAX_M3_REASONING_EFFORT_MAP,
     // Preserve an explicit disable request for the provider to reject; never silently enable it.
-    [MINIMAX_FLASH_MODEL]: { none: "none" },
+    // Map max to high to prevent 60-second gateway read timeouts on large contexts.
+    [MINIMAX_FLASH_MODEL]: { none: "none", max: "high" },
   },
   directReasoningEffortModels: [MINIMAX_FLASH_MODEL],
   thinkingToggleModels: ["MiniMax-M3"],

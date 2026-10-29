@@ -21,7 +21,8 @@ import type { AttemptRecoveryKind } from "../usage/log";
 import { bridgeToResponsesSSE } from "../bridge";
 import { clearableDeadline, idleDeadline } from "../lib/abort";
 import { readBoundedResponseBody } from "../lib/bounded-body";
-import { applyUpstreamRecoveryInit, fetchWithResetRetry, prepareSameTarget429Wait } from "../lib/upstream-retry";
+import { applyUpstreamRecoveryInit, fetchWithResetRetry, isConnectionResetError, prepareSameTarget429Wait } from "../lib/upstream-retry";
+import { formatTurkishSocketClosedError } from "../lib/errors";
 import { rateLimitRetryDelayMs } from "../providers/key-failover";
 import {
   createTranslatorBudget,
@@ -275,6 +276,13 @@ class LoopError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
     this.name = "LoopError";
+  }
+}
+
+export class StreamResetError extends LoopError {
+  constructor(status: number, message: string, readonly streamedPassthroughCount: number, readonly cause?: unknown) {
+    super(status, message);
+    this.name = "StreamResetError";
   }
 }
 
@@ -740,6 +748,16 @@ export async function runWithImageBridge(deps: ImageBridgeDeps): Promise<Respons
       if (signal.aborted) throw new LoopError(499, "client closed request during image-bridge");
       if (error instanceof RoutedModelInactivityError) throw new LoopError(504, error.message);
       if (error instanceof WebSearchStreamProtocolError) throw new LoopError(502, error.message);
+      const isReset = isConnectionResetError(error)
+        || (error instanceof Error && /socket connection was closed|connection(?: was)? closed unexpectedly|ECONNRESET|EPIPE/i.test(error.message));
+      if (isReset) {
+        throw new StreamResetError(
+          502,
+          formatTurkishSocketClosedError(error instanceof Error ? error.message : String(error)),
+          0,
+          error,
+        );
+      }
       throw new LoopError(502, `Provider stream error: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       iterationBudget?.dispose();
@@ -796,20 +814,38 @@ export async function runWithImageBridge(deps: ImageBridgeDeps): Promise<Respons
   // Drive the remaining iterations live. Image generation runs interleaved with the real sidecar
   // timing; the final answer's passthrough events come last.
   async function* produce(): AsyncGenerator<AdapterEvent> {
-    let prepared = firstPrepared;
+    let prepared: IterationResponse | undefined = firstPrepared;
+    let streamResetRetries = 0;
+    const MAX_STREAM_RESET_RETRIES = 2;
     try {
       for (let i = 0; i < HARD_CAP; i++) {
         const forceFinal = i >= maxRounds;
         try {
-          // First loop turn reuses the eager HEADERS when present. runTurn (and later iterations)
-          // acquire headers inside the live SSE stream so clients already have the response open.
-          if (!prepared || i > 0) {
-            yield { type: "heartbeat" };
-            prepared = yield* prepareIterationEvents(forceFinal);
+          let split: IterationSplit;
+        while (true) {
+          try {
+            if (!prepared) {
+              yield { type: "heartbeat" };
+              prepared = yield* prepareIterationEvents(forceFinal);
+            }
+            split = yield* consumeIterationEvents(prepared);
+            prepared = undefined;
+            break;
+          } catch (error) {
+            prepared = undefined;
+            if (
+              streamResetRetries < MAX_STREAM_RESET_RETRIES
+              && !signal.aborted
+              && error instanceof StreamResetError
+              && error.streamedPassthroughCount === 0
+            ) {
+              streamResetRetries += 1;
+              yield { type: "heartbeat" };
+              continue;
+            }
+            throw error;
           }
-          // Raw-byte progress heartbeats reach the bridge; semantic events remain buffered.
-          const split = yield* consumeIterationEvents(prepared);
-          prepared = undefined;
+        }
 
           // Loop (fulfill + re-ask) ONLY when the model's actionable output is purely image_gen. A
           // real tool call means this turn is terminal for Codex — finalize so those calls reach

@@ -846,6 +846,7 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     // declared as choices so an API-key pool may mix regions: each key routes to its own host
     // (entry.baseUrl) and a wrong-region default is corrected on the first key-scoped 401.
     id: "minimax", label: "MiniMax — Coding Plan", baseUrl: MINIMAX_INTL_BASE_URL, adapter: "openai-chat", authKind: "key",
+    upstreamHttpVersion: "http1.1",
     allowBaseUrlOverride: true, baseUrlChoices: MINIMAX_BASE_URL_CHOICES,
     dashboardUrl: "https://platform.minimax.io", defaultModel: "MiniMax-M3", models: MINIMAX_MODELS,
     ...MINIMAX_REASONING_CONFIG,
@@ -866,6 +867,7 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
   },
   {
     id: "minimax-cn", label: "MiniMax — Coding Plan (CN)", baseUrl: MINIMAX_CN_BASE_URL, adapter: "openai-chat", authKind: "key",
+    upstreamHttpVersion: "http1.1",
     allowBaseUrlOverride: true, baseUrlChoices: MINIMAX_BASE_URL_CHOICES,
     dashboardUrl: "https://platform.minimaxi.com", defaultModel: "MiniMax-M3", models: MINIMAX_MODELS,
     ...MINIMAX_REASONING_CONFIG,
