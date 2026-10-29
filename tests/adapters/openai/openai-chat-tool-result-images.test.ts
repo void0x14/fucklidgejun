@@ -146,3 +146,90 @@ test("image-free tool results emit no carrier and an unchanged wire", () => {
   expect(messages.some(isImageCarrier)).toBe(false);
   expect(messages.map(m => m.role)).toEqual(["user", "assistant", "tool", "user"]);
 });
+
+test("prunes oldest images when exceeding maxImagesPerPrompt (e.g. 4 for Yeta/DeepSeek)", () => {
+  const yetaProvider: OcxProviderConfig = {
+    ...provider,
+    baseUrl: "https://platform.yeta.ai/v1",
+    maxImagesPerPrompt: 4,
+  };
+  const parsed: OcxParsedRequest = {
+    modelId: "deepseek-v4.1-flash-uncensored",
+    context: {
+      messages: [
+        user("task start"),
+        assistantWithCalls([{ id: "c1", name: "s1" }]),
+        toolResult("c1", "s1", [{ type: "image", imageUrl: "data:image/png;base64,img1" }]),
+        assistantWithCalls([{ id: "c2", name: "s2" }]),
+        toolResult("c2", "s2", [{ type: "image", imageUrl: "data:image/png;base64,img2" }]),
+        assistantWithCalls([{ id: "c3", name: "s3" }]),
+        toolResult("c3", "s3", [{ type: "image", imageUrl: "data:image/png;base64,img3" }]),
+        assistantWithCalls([{ id: "c4", name: "s4" }]),
+        toolResult("c4", "s4", [{ type: "image", imageUrl: "data:image/png;base64,img4" }]),
+        assistantWithCalls([{ id: "c5", name: "s5" }]),
+        toolResult("c5", "s5", [{ type: "image", imageUrl: "data:image/png;base64,img5" }]),
+      ],
+    },
+    stream: false,
+    options: {},
+  };
+  const req = createOpenAIChatAdapter(yetaProvider).buildRequest(parsed) as { body: string };
+  const wireMessages = (JSON.parse(req.body) as { messages: ChatMsg[] }).messages;
+
+  // Count total image_url parts across all wire messages
+  let totalImages = 0;
+  let totalOmitted = 0;
+  for (const m of wireMessages) {
+    if (Array.isArray(m.content)) {
+      for (const p of m.content) {
+        if (p.type === "image_url") totalImages++;
+        if (p.type === "text" && p.text?.includes("image omitted: prompt exceeded provider limit")) totalOmitted++;
+      }
+    }
+  }
+  expect(totalImages).toBe(4);
+  expect(totalOmitted).toBe(1);
+});
+
+test("auto-prunes oldest images for Yeta baseUrl without explicit maxImagesPerPrompt", () => {
+  const autoYetaProvider: OcxProviderConfig = {
+    ...provider,
+    baseUrl: "https://platform.yeta.ai/v1",
+  };
+  const parsed: OcxParsedRequest = {
+    modelId: "deepseek-v4.1-flash-uncensored",
+    context: {
+      messages: [
+        user("task start"),
+        assistantWithCalls([{ id: "c1", name: "s1" }]),
+        toolResult("c1", "s1", [{ type: "image", imageUrl: "data:image/png;base64,img1" }]),
+        assistantWithCalls([{ id: "c2", name: "s2" }]),
+        toolResult("c2", "s2", [{ type: "image", imageUrl: "data:image/png;base64,img2" }]),
+        assistantWithCalls([{ id: "c3", name: "s3" }]),
+        toolResult("c3", "s3", [{ type: "image", imageUrl: "data:image/png;base64,img3" }]),
+        assistantWithCalls([{ id: "c4", name: "s4" }]),
+        toolResult("c4", "s4", [{ type: "image", imageUrl: "data:image/png;base64,img4" }]),
+        assistantWithCalls([{ id: "c5", name: "s5" }]),
+        toolResult("c5", "s5", [{ type: "image", imageUrl: "data:image/png;base64,img5" }]),
+      ],
+    },
+    stream: false,
+    options: {},
+  };
+  const req = createOpenAIChatAdapter(autoYetaProvider).buildRequest(parsed) as { body: string };
+  const wireMessages = (JSON.parse(req.body) as { messages: ChatMsg[] }).messages;
+
+  let totalImages = 0;
+  let totalOmitted = 0;
+  for (const m of wireMessages) {
+    if (Array.isArray(m.content)) {
+      for (const p of m.content) {
+        if (p.type === "image_url") totalImages++;
+        if (p.type === "text" && p.text?.includes("image omitted: prompt exceeded provider limit")) totalOmitted++;
+      }
+    }
+  }
+  expect(totalImages).toBe(4);
+  expect(totalOmitted).toBe(1);
+});
+

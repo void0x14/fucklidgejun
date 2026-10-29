@@ -1,4 +1,4 @@
-import { hasShrinkableOpenAIChatImages, normalizeOpenAIChatImages } from "./openai-chat-images";
+import { hasShrinkableOpenAIChatImages, normalizeOpenAIChatImages, pruneOpenAIChatImages } from "./openai-chat-images";
 import type { AdapterRequest, IncomingMeta, ProviderAdapter } from "./base";
 import type { AdapterEvent, OcxParsedRequest, OcxProviderConfig, OcxUsage } from "../types";
 import { modelInList } from "../types";
@@ -97,6 +97,12 @@ export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAd
       lastRequestedModelId = parsed.modelId;
       const { url, headers, hasCredential } = openAIChatTransport(provider);
       const messages = frameAgentRouterMessages(provider.baseUrl, messagesToChatFormat(parsed, provider));
+      const maxImages = provider.maxImagesPerPrompt
+        ?? provider.maxImages
+        ?? (provider.baseUrl?.toLowerCase().includes("yeta") || parsed.modelId.toLowerCase().includes("deepseek") ? 4 : undefined);
+      if (maxImages !== undefined && maxImages > 0) {
+        pruneOpenAIChatImages(messages, maxImages);
+      }
       const finish = (): AdapterRequest => {
         const tools = toolsToChatFormatForProvider(parsed, provider);
         const toolChoice = toolChoiceToChatFormat(parsed.options.toolChoice, parsed.context.tools, provider);

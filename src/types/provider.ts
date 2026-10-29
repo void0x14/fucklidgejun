@@ -367,6 +367,12 @@ export interface OcxProviderConfig {
    */
   allowEncryptedV2AgentTasks?: boolean;
   /**
+   * Maximum images allowed per prompt/request. Older images in history are pruned
+   * to text placeholders when this cap is reached. Defaults to 4 for Yeta and DeepSeek.
+   */
+  maxImagesPerPrompt?: number;
+  maxImages?: number;
+  /**
    * Explicit opt-in for non-registry private-network destinations such as localhost, RFC1918,
    * link-local, or unique-local upstreams. Metadata endpoints remain blocked.
    */

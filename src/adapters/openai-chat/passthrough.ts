@@ -1,4 +1,5 @@
 import { openAIChatTransport, stripBracketedModelSuffix } from "./wire";
+import { pruneOpenAIChatImages } from "../openai-chat-images";
 import type { AdapterRequest } from "../base";
 import { frameAgentRouterMessages } from "../agentrouter";
 import { openRouterProviderPayload, resolveOpenRouterRouting } from "../../providers/openrouter-routing";
@@ -57,6 +58,12 @@ export function buildOpenAIChatPassthroughRequest(
     messages: frameAgentRouterMessages(provider.baseUrl, rawBody.messages),
     stream,
   };
+  const maxImages = provider.maxImagesPerPrompt
+    ?? provider.maxImages
+    ?? (provider.baseUrl?.toLowerCase().includes("yeta") || modelId.toLowerCase().includes("deepseek") ? 4 : undefined);
+  if (maxImages !== undefined && maxImages > 0) {
+    pruneOpenAIChatImages(body.messages, maxImages);
+  }
   for (const field of CHAT_PASSTHROUGH_FIELDS) {
     if (rawBody[field] !== undefined) body[field] = rawBody[field];
   }

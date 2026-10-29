@@ -100,3 +100,35 @@ export async function normalizeOpenAIChatImages(
     ...options,
   });
 }
+
+/**
+ * Prune excess image_url parts across all messages to satisfy provider-specific image limits
+ * (e.g. Yeta / DeepSeek caps at 4 images per prompt).
+ * Oldest images are pruned first, converted in-place into descriptive text placeholders.
+ */
+export function pruneOpenAIChatImages(messages: unknown, maxImages: number): void {
+  if (!Array.isArray(messages) || typeof maxImages !== "number" || maxImages <= 0) return;
+  const imageParts: Record<string, unknown>[] = [];
+
+  for (const message of messages) {
+    if (!isRecord(message) || !Array.isArray(message.content)) continue;
+    for (const part of message.content) {
+      if (isRecord(part) && part.type === "image_url") {
+        imageParts.push(part);
+      }
+    }
+  }
+
+  if (imageParts.length <= maxImages) return;
+
+  const dropCount = imageParts.length - maxImages;
+  for (let i = 0; i < dropCount; i++) {
+    const part = imageParts[i];
+    delete part.image_url;
+    delete part.imageUrl;
+    delete part.detail;
+    part.type = "text";
+    part.text = `[image omitted: prompt exceeded provider limit of ${maxImages} images; older screenshot omitted]`;
+  }
+}
+
