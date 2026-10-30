@@ -170,7 +170,8 @@ export const OPENAI_API_GPT56_REASONING_EFFORTS = ["low", "medium", "high", "xhi
  * https://developers.openai.com/api/docs/changelog). Added 2026-09-23 ahead of live discovery; the
  * API window is not published yet, so the rows mirror gpt-6-astra's 1,050,000 / 922,000 API seed.
  */
-export const OPENAI_GPT6_MODELS = ["gpt-6-sol", "gpt-6-luna"];
+// GPT-6.1 Terra (2026-10-26): same API limits; its none..max ladder is set per model.
+export const OPENAI_GPT6_MODELS = ["gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna"];
 /*
  * Meta Model API (https://api.meta.ai/v1) — published ladder, deliberately NOT the
  * house set. dev.meta.ai/docs/reasoning lists "none", "minimal", "low", "medium",
@@ -246,6 +247,8 @@ export const OPENROUTER_GPT56_CONTEXT_WINDOWS = {
   "openai/gpt-5.6-sol": OPENROUTER_GPT56_CONTEXT_WINDOW,
   "openai/gpt-5.6-terra": OPENROUTER_GPT56_CONTEXT_WINDOW,
   "openai/gpt-5.6-luna": OPENROUTER_GPT56_CONTEXT_WINDOW,
+  // 261027: GPT-6.1 Terra listing: context_length 1,050,000.
+  "openai/gpt-6.1-terra": OPENROUTER_GPT56_CONTEXT_WINDOW,
   // 260923 preemptive: GPT-6 Sol/Luna ahead of OpenRouter's own listing; same window as GPT-5.6.
   "openai/gpt-6-sol": OPENROUTER_GPT56_CONTEXT_WINDOW,
   "openai/gpt-6-luna": OPENROUTER_GPT56_CONTEXT_WINDOW,
@@ -770,6 +773,7 @@ export const DIGITALOCEAN_CHAT_COMPLETION_MODELS = [
   "arcee-trinity-large-thinking",
   "openai-gpt-5.6-sol",
   "openai-gpt-5.6-terra",
+  "openai-gpt-6.1-terra",
   "openai-gpt-5.6-luna",
   // 260923 preemptive: GPT-6 Sol/Luna ahead of DigitalOcean's model list.
   "openai-gpt-6-sol",

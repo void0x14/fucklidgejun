@@ -6,6 +6,8 @@ import { useDataSurface } from "../../data-surface";
 import {
   clientCatalogRefreshFailures,
   putModelVisibility,
+  type ModelVisibilityTarget,
+  type ModelVisibilityScope,
 } from "../../model-visibility";
 
 /**
@@ -96,15 +98,20 @@ export default function CodexModelsPanel({ apiBase, active = true }: { apiBase: 
       .sort((a, b) => a.provider.localeCompare(b.provider));
   }, [selection, query]);
 
-  const apply = useCallback(async (provider: string, ids: string[], nextEnabled: boolean) => {
+  const apply = useCallback(async (
+    provider: string,
+    targets: ModelVisibilityTarget[],
+    nextEnabled: boolean,
+    scope: ModelVisibilityScope = "models",
+  ) => {
     setPending(`${provider}:${nextEnabled ? "on" : "off"}`);
     setMessage(null);
     try {
       const response = await putModelVisibility(
         apiBase,
-        "models",
+        scope,
         provider,
-        ids.map(id => ({ id })),
+        targets,
         nextEnabled,
       );
       const body = await response.json().catch(() => null) as { error?: string } | null;
@@ -112,14 +119,10 @@ export default function CodexModelsPanel({ apiBase, active = true }: { apiBase: 
         setMessage({ tone: "err", text: body?.error ?? t("integrations.codex.modelsFail") });
         return;
       }
-      // The endpoint converges catalogs in the same call, so a client that refused the refresh
-      // is still serving its previous list. That is a real outcome, not a silent success.
       const refused = clientCatalogRefreshFailures(body);
       setMessage(refused?.length
         ? { tone: "err", text: refused.map(row => row.reason || row.refusalReason).filter(Boolean).join(", ") }
-        : { tone: "ok", text: t("models.staleBanner") });
-      // Re-read before the switch is trusted again: the optimistic value and the server's can
-      // disagree, and a switch left showing the wrong state is what made this panel unusable.
+        : { tone: "ok", text: t("models.applied") });
       await load();
     } catch {
       setMessage({ tone: "err", text: t("integrations.codex.modelsFail") });
@@ -159,7 +162,7 @@ export default function CodexModelsPanel({ apiBase, active = true }: { apiBase: 
                       type="button"
                       className="btn btn-ghost btn-sm text-caption"
                       disabled={pending !== null || onCount === rows.length}
-                      onClick={() => void apply(group.provider, rows.filter(row => !enabled(row, selection.selected)).map(row => row.id), true)}
+                      onClick={() => void apply(group.provider, rows.map(r => ({ id: r.id, native: r.native === true })), true, "provider")}
                     >
                       {t("models.allOn")}
                     </button>
@@ -167,7 +170,7 @@ export default function CodexModelsPanel({ apiBase, active = true }: { apiBase: 
                       type="button"
                       className="btn btn-ghost btn-sm text-caption"
                       disabled={pending !== null || onCount === 0}
-                      onClick={() => void apply(group.provider, rows.filter(row => enabled(row, selection.selected)).map(row => row.id), false)}
+                      onClick={() => void apply(group.provider, rows.map(r => ({ id: r.id, native: r.native === true })), false, "models")}
                     >
                       {t("models.allOff")}
                     </button>
@@ -180,8 +183,8 @@ export default function CodexModelsPanel({ apiBase, active = true }: { apiBase: 
                       <div key={`${row.provider}/${row.id}`} className="integration-model-row">
                         <Switch
                           on={on}
-                          onClick={() => void apply(group.provider, [row.id], !on)}
-                          disabled={pending !== null || row.native === true}
+                          onClick={() => void apply(group.provider, [{ id: row.id, native: row.native === true }], !on)}
+                          disabled={pending !== null}
                           label={row.id}
                         />
                         <span className="integration-model-name" title={row.id}>{row.id}</span>

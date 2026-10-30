@@ -926,6 +926,16 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
   },
   { id: "vercel-ai-gateway", label: "Vercel AI Gateway", baseUrl: "https://ai-gateway.vercel.sh/v1", adapter: "openai-chat", authKind: "key", dashboardUrl: "https://vercel.com/dashboard" },
   {
+    id: "hrmnapi",
+    label: "Harmon API",
+    adapter: "openai-chat",
+    baseUrl: "https://api.hrmn.tr/v1",
+    authKind: "key",
+    liveModels: true,
+    defaultModel: "jb-deepseek-v4.1-flash-1017",
+    dashboardUrl: "https://api.hrmn.tr",
+  },
+  {
     id: "opencode-free",
     label: "OpenCode Free",
     adapter: "openai-chat",
@@ -1079,7 +1089,7 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     featured: false,
     dashboardUrl: "https://github.com/settings/copilot",
     liveModels: true,
-    models: ["gpt-4o", "gpt-4.1", "gpt-4.1-mini", "claude-sonnet-4", "gemini-2.5-pro", "gpt-5-mini", "gpt-5.3-codex", "gpt-5.4", "gpt-5.4-mini", "gpt-5.5", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-6-sol", "gpt-6-luna"],
+    models: ["gpt-4o", "gpt-4.1", "gpt-4.1-mini", "claude-sonnet-4", "gemini-2.5-pro", "gpt-5-mini", "gpt-5.3-codex", "gpt-5.4", "gpt-5.4-mini", "gpt-5.5", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna"],
     defaultModel: "gpt-4o",
     // Copilot fronts a mixed-wire catalog: these models reject /chat/completions for
     // real Codex-agent traffic (function tools + reasoning), so every inbound wire
@@ -1095,6 +1105,7 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
       "gpt-5.6-luna": "openai-responses",
       "gpt-5.6-sol": "openai-responses",
       "gpt-5.6-terra": "openai-responses",
+      "gpt-6.1-terra": "openai-responses",
       "gpt-6-astra": "openai-responses",
       // 260923 preemptive: GPT-6 Sol/Luna ride Responses like every GPT-5.6/6 row above.
       "gpt-6-sol": "openai-responses",

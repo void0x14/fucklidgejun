@@ -42,11 +42,13 @@ import { RESERVE_METADATA_SOURCE_FIELD } from "./reserve";
 import {
   ACCOUNT_GATED_NATIVE_OPENAI_MODELS,
   NATIVE_GPT6_CONTEXT,
+  NATIVE_GPT61_TERRA_CONTEXT,
   NATIVE_DAYBREAK_BLUE_MODEL,
   NATIVE_GPT6_ASTRA_MINOR_MODEL,
   NATIVE_GPT6_ASTRA_MODEL,
   NATIVE_GPT6_LUNA_MODEL,
   NATIVE_GPT6_SOL_MODEL,
+  NATIVE_GPT61_TERRA_MODEL,
   NATIVE_RESERVE_MODEL,
   NATIVE_OPENAI_CAPABILITY_ALIAS_MODELS,
   NATIVE_OPENAI_MODELS,
@@ -71,6 +73,7 @@ export {
   NATIVE_GPT6_ASTRA_MODEL,
   NATIVE_GPT6_LUNA_MODEL,
   NATIVE_GPT6_SOL_MODEL,
+  NATIVE_GPT61_TERRA_MODEL,
   NATIVE_OPENAI_CAPABILITY_ALIAS_MODELS,
   NATIVE_OPENAI_MODELS,
   SELF_DESCRIBED_NATIVE_OPENAI_MODELS,
@@ -90,6 +93,7 @@ export const DOCUMENTED_NATIVE_OPENAI_ADDITIONS = [
   // client_version >= 0.155.0, so an installed catalog built by an older client lacks them.
   // Astra Minor is deliberately absent: it is gated, and nativeOpenAiSlugs() would drop it anyway.
   NATIVE_GPT6_SOL_MODEL, NATIVE_GPT6_LUNA_MODEL,
+  NATIVE_GPT61_TERRA_MODEL,
   "gpt-6", "gpt-6-pro", "gpt-6-codex", "gpt-6-mini", "gpt-6-nano",
 ];
 
@@ -207,6 +211,7 @@ export const NATIVE_OPENAI_CONTEXT_OVERRIDES: Record<string, { contextWindow?: n
   // the row's own ceiling rather than the GPT-5.6 family's measured 922,000.
   [NATIVE_GPT6_SOL_MODEL]: { ...NATIVE_GPT6_CONTEXT },
   [NATIVE_GPT6_LUNA_MODEL]: { ...NATIVE_GPT6_CONTEXT },
+  [NATIVE_GPT61_TERRA_MODEL]: { ...NATIVE_GPT61_TERRA_CONTEXT },
   // Astra Minor borrows Astra's row, so it inherits Astra's numbers. No account we hold can reach
   // it, so this is inheritance, not a measurement.
   [NATIVE_GPT6_ASTRA_MINOR_MODEL]: { ...NATIVE_GPT6_CONTEXT },

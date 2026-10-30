@@ -13,6 +13,7 @@ export const KIRO_NATIVE_EFFORT_FIELDS: Record<string, "reasoning" | "output_con
   // 260923 preemptive (see kiro-models.ts): same native field as the GPT-5.6 family.
   "gpt-6-sol": "reasoning",
   "gpt-6-luna": "reasoning",
+  "gpt-6.1-terra": "reasoning",
   "claude-opus-5": "output_config",
 };
 

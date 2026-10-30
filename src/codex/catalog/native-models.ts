@@ -38,6 +38,14 @@ export const NATIVE_GPT6_SOL_MODEL = "gpt-6-sol";
 export const NATIVE_GPT6_LUNA_MODEL = "gpt-6-luna";
 
 /**
+ * GPT-6.1 Terra, announced 2026-10-26 (https://openai.com/index/introducing-gpt-6-1-terra/).
+ * Its verbatim openai/codex models.json row is roster-pinned (captured 2026-10-27):
+ * low..ultra, default low, native 500,000 / 872,000 context, multi-agent v2, Fast only.
+ * Self-described and ungated alongside GPT-5.6 Terra; no default or roster migration.
+ */
+export const NATIVE_GPT61_TERRA_MODEL = "gpt-6.1-terra";
+
+/**
  * Unreleased GPT-6 Astra variant. No public row exists anywhere — neither the codex-rs bundle nor
  * the 2026-09-23 main-account roster probe carries it — so it is ACCOUNT-GATED: hidden and
  * request-refused until an authenticated `/models` roster lists it for that account. Absence is
@@ -55,6 +63,10 @@ export const NATIVE_GPT6_ASTRA_MINOR_MODEL = "gpt-6-astra-minor";
  */
 export const NATIVE_GPT6_CONTEXT: Readonly<{ contextWindow: number; maxContextWindow: number; maxInputTokens: number }> =
   Object.freeze({ contextWindow: 272_000, maxContextWindow: 872_000, maxInputTokens: 872_000 });
+
+/** GPT-6.1 Terra's native row ships 500,000 default / 872,000 maximum (not the API window). */
+export const NATIVE_GPT61_TERRA_CONTEXT: Readonly<{ contextWindow: number; maxContextWindow: number; maxInputTokens: number }> =
+  Object.freeze({ ...NATIVE_GPT6_CONTEXT, contextWindow: 500_000 });
 
 /** Pinned row a configured native borrows its capability metadata from. */
 export const CONFIGURED_NATIVE_OPENAI_TEMPLATE_MODEL = NATIVE_GPT6_SOL_MODEL;
@@ -128,6 +140,7 @@ export const SELF_DESCRIBED_NATIVE_OPENAI_MODELS: ReadonlySet<string> = new Set(
   // Rows come from roster-pinned-models.json via pinnedNativeModelRows(), not the codex-rs pin.
   NATIVE_GPT6_SOL_MODEL,
   NATIVE_GPT6_LUNA_MODEL,
+  NATIVE_GPT61_TERRA_MODEL,
 ]);
 
 /**
@@ -248,6 +261,7 @@ const BUILT_IN_NATIVE_OPENAI_MODELS: readonly string[] = Object.freeze([
   NATIVE_DAYBREAK_BLUE_MODEL,
   NATIVE_GPT6_ASTRA_MODEL,
   NATIVE_GPT6_SOL_MODEL, NATIVE_GPT6_LUNA_MODEL,
+  NATIVE_GPT61_TERRA_MODEL,
   NATIVE_GPT6_ASTRA_MINOR_MODEL,
   "gpt-6",
   "gpt-6-pro",
@@ -372,6 +386,7 @@ export const NATIVE_MAIN_DRAIN_SENTINEL_MODELS: ReadonlySet<string> = new Set([
   // Astra Minor arrives through the gated spread above; Sol and Luna are ungated flagships.
   NATIVE_GPT6_SOL_MODEL,
   NATIVE_GPT6_LUNA_MODEL,
+  NATIVE_GPT61_TERRA_MODEL,
   "gpt-6",
   "gpt-6-pro",
   "gpt-6-codex",

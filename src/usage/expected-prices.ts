@@ -51,6 +51,9 @@ const ASTRA_API_PRICING = "https://developers.openai.com/api/docs/models/gpt-6-a
 const GPT6_SOL: Cost4 = { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 };
 const GPT6_LUNA: Cost4 = { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 };
 const GPT6_API_PRICING = "https://developers.openai.com/api/docs/changelog (2026-09-22: GPT-6 Sol $2 / $0.20 cached / $10; GPT-6 Luna $0.10 / $0.01 cached / $0.50)";
+/** GPT-6.1 Terra (2026-10-26): 30-minute cache writes; >272K reprices the whole request. */
+const GPT61_TERRA: Cost4 = { input: 1, output: 5, cacheRead: 0.05, cacheWrite: 1.25 };
+const GPT61_TERRA_API_PRICING = "https://developers.openai.com/api/docs/models/gpt-6.1-terra (2026-10-27: GPT-6.1 Terra $1 / $0.05 cached / $1.25 cache write / $5; >272K $2 / $0.10 / $2.50 / $7.50)";
 /**
  * Daybreak aliases. `daybreak-*-latest` never appears in the pricing table itself — only its
  * current snapshot does — so these tuples are the snapshot's published rates and carry
@@ -177,8 +180,10 @@ const DEVIN_SWE2_NOTE = "list rate; $0 self-serve through 2026-10-08 and 75%-off
 
 export const EXPECTED_PRICE_OVERLAYS: readonly ExpectedPriceOverlay[] = [
   { provider: "openai-apikey", modelId: "gpt-6-astra", cost4: GPT6_ASTRA, source: ASTRA_API_PRICING, verifiedAt: "2026-09-05", status: "verified" },
+  { provider: "openai-apikey", modelId: "gpt-6.1-terra", cost4: GPT61_TERRA, source: GPT61_TERRA_API_PRICING, verifiedAt: "2026-10-27", status: "verified" },
   // Display estimates use API prices for both login and API-key routes, including cache writes.
   { provider: "openai", modelId: "gpt-6-astra", cost4: GPT6_ASTRA, source: `API-reference comparison estimate: ${ASTRA_API_PRICING}`, verifiedAt: "2026-09-05", status: "verified-derived" },
+  { provider: "openai", modelId: "gpt-6.1-terra", cost4: GPT61_TERRA, source: `API-reference comparison estimate: ${GPT61_TERRA_API_PRICING}`, verifiedAt: "2026-10-27", status: "verified-derived" },
   { provider: "openai-apikey", modelId: "gpt-6-sol", cost4: GPT6_SOL, source: GPT6_API_PRICING, verifiedAt: "2026-09-23", status: "verified" },
   { provider: "openai-apikey", modelId: "gpt-6-luna", cost4: GPT6_LUNA, source: GPT6_API_PRICING, verifiedAt: "2026-09-23", status: "verified" },
   { provider: "openai", modelId: "gpt-6-sol", cost4: GPT6_SOL, source: `API-reference comparison estimate: ${GPT6_API_PRICING}`, verifiedAt: "2026-09-23", status: "verified-derived" },
@@ -441,6 +446,7 @@ export const PRIORITY_MULTIPLIERS: Readonly<Record<string, number>> = {
   // standard tuples; the stale bases made these look like 1.6/0.4 (#907).
   "gpt-5.6-terra": 2,
   "gpt-5.6-luna": 2,
+  "gpt-6.1-terra": 2,
   "gpt-5.5": 2.5,
   "gpt-5.4-mini": 2,
   "gpt-5.4": 2,
@@ -550,6 +556,7 @@ const UNIFORM_DOUBLE: Cost4 = { input: 2, output: 2, cacheRead: 2, cacheWrite: 2
 const OPENAI_PRICING_DOC = "https://developers.openai.com/api/docs/pricing";
 const OPENAI_CONTEXT_MODELS = [
   "gpt-6-astra",
+  "gpt-6.1-terra",
   "gpt-6-sol",
   "gpt-6-luna",
   "gpt-5.6-sol",

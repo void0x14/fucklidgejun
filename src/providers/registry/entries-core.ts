@@ -532,6 +532,8 @@ export const PROVIDER_REGISTRY_CORE: readonly ProviderRegistryEntry[] = [
       ...OPENAI_DAYBREAK_REASONING_EFFORTS,
       "gpt-6-astra": ["low", "medium", "high", "xhigh", "max"],
       ...Object.fromEntries(OPENAI_GPT6_MODELS.map(id => [id, ["low", "medium", "high", "xhigh", "max"]])),
+      // OpenAI API model page (2026-10-27): Terra also accepts none; Sol does not.
+      "gpt-6.1-terra": ["none", "low", "medium", "high", "xhigh", "max"],
     },
     virtualModels: OPENAI_API_GPT56_VIRTUAL_MODELS,
   },
@@ -849,6 +851,7 @@ export const PROVIDER_REGISTRY_CORE: readonly ProviderRegistryEntry[] = [
       // 260923 preemptive: GPT-6 Sol/Luna are OpenAI-backed routes like the GPT-5.6 rows above.
       "openai/gpt-6-sol": true,
       "openai/gpt-6-luna": true,
+      "openai/gpt-6.1-terra": true,
     },
     // Deliberately no OpenRouter route pin: it bills the endpoint actually used and reports the
     // actual service_tier. B0 confirmation therefore owns downgrade safety. Forcing `only` plus
